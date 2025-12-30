@@ -4,6 +4,7 @@ import addFormats from 'ajv-formats';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
+import { OpenApiErrorFormatter, ErrorFormatterConfig, ValidationContext } from './openapiErrorFormatter';
 
 /**
  * Cache entry for OpenAPI specs
@@ -118,6 +119,11 @@ export interface OpenApiMatcherConfig {
    * @default false
    */
   debugResolution?: boolean;
+
+  /**
+   * Error formatter configuration
+   */
+  errorFormatterConfig?: ErrorFormatterConfig;
 }
 
 /**
@@ -144,6 +150,8 @@ export interface MatcherValidationResult {
   skipped?: boolean;
   fallbackUsed?: boolean;
   warnOnlyMode?: boolean;
+  /** Formatted error message (human-readable) */
+  formattedError?: string;
 }
 
 /**
@@ -604,25 +612,25 @@ export class OpenApiMatcher {
   /**
    * Format validation errors
    */
-  private formatErrors(errors: ErrorObject[], context: ValidationContext): string {
+  private formatErrors(errors: ErrorObject[], context: ValidationContext, url?: string): string {
+    // If user provided custom formatter, use it
     if (this.config.errorFormatter) {
       return this.config.errorFormatter(errors, context);
     }
 
-    // Default error formatting
-    const errorLines = errors.map(err => {
-      const pathStr = err.instancePath || 'root';
-      const message = err.message || 'validation failed';
-      const params = err.params ? ` (${JSON.stringify(err.params)})` : '';
-      return `  - ${pathStr}: ${message}${params}`;
-    });
-
-    return [
-      `OpenAPI validation failed for ${context.method.toUpperCase()} ${context.path} (${context.status})`,
-      '',
-      'Errors:',
-      ...errorLines,
-    ].join('\n');
+    // Use the new OpenAPI error formatter
+    const formatter = new OpenApiErrorFormatter(this.config.errorFormatterConfig);
+    
+    const formatterContext = {
+      method: context.method,
+      resolvedPath: context.path,
+      actualUrl: url,
+      status: context.status,
+      validationMode: this.config.strict ? 'strict' as const : this.config.allowAdditionalProperties ? 'tolerant' as const : 'hybrid' as const,
+      schema: context.schema,
+    };
+    
+    return formatter.format(errors, formatterContext);
   }
 
   /**
@@ -806,30 +814,33 @@ export class OpenApiMatcher {
       };
 
       if (!valid && validator.errors) {
+        const formattedError = this.formatErrors(validator.errors, context, metadata.url);
+        
         // Warn only mode
         if (this.config.warnOnly) {
           console.warn(`[OpenApiMatcher] Validation failed (warnOnly mode):`);
-          const errorMsg = this.formatErrors(validator.errors, context);
-          console.warn(errorMsg);
+          console.warn(formattedError);
           
           return {
             valid: true,
             message: `Validation passed (warnOnly mode)`,
             errors: validator.errors,
-            warnings: [...warnings, errorMsg],
+            warnings: [...warnings, formattedError],
             schema: finalSchema,
             context,
+            formattedError,
             warnOnlyMode: true,
           };
         }
 
         return {
           valid: false,
-          message: this.formatErrors(validator.errors, context),
+          message: formattedError,
           errors: validator.errors,
           warnings,
           schema: finalSchema,
           context,
+          formattedError,
         };
       }
 

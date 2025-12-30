@@ -20,3 +20,9 @@ export {
   type MatcherValidationResult,
   type ValidationContext
 } from './openapiMatcher';
+export {
+  OpenApiErrorFormatter,
+  createErrorFormatter,
+  type ErrorFormatterConfig,
+  type FormattedError
+} from './openapiErrorFormatter';

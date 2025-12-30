@@ -1197,3 +1197,300 @@ test('Validate API response with environment config', async ({ request }) => {
 });
 ```
 
+
+## Human-Readable Error Formatting
+
+The OpenAPI validator includes a sophisticated error formatter that produces clear, actionable validation errors.
+
+### Basic Usage with Default Formatter
+
+```typescript
+import { test } from '@playwright/test';
+import { validateResponse } from 'playwright-forge';
+
+test('API validation with formatted errors', async ({ request }) => {
+  const response = await request.post('/api/users', {
+    data: {
+      email: 'invalid-email',  // Invalid format
+      age: 'twenty-five'        // Wrong type
+    }
+  });
+  
+  const result = await validateResponse({
+    spec: './openapi.yaml',
+    path: '/users',
+    method: 'post',
+    status: 400,
+    responseBody: await response.json()
+  });
+  
+  if (!result.valid) {
+    // formattedError contains human-readable output
+    console.error(result.formattedError);
+  }
+});
+```
+
+### Example Output (Detailed Mode)
+
+When validation fails, you'll see clear, structured output:
+
+```
+═══════════════════════════════════════════════════════════
+  OpenAPI Validation Failed
+═══════════════════════════════════════════════════════════
+
+Request Context:
+  Method:       POST
+  Path:         /users
+  URL:          https://api.example.com/users
+  Status:       400
+  Content-Type: application/json
+
+Validation Summary:
+  Total Errors: 3
+  Mode:         strict
+
+Validation Errors:
+
+  Error 1:
+    Field:       $.user.email
+    Expected:    format: email
+    Actual:      value: "invalid-email"
+    Explanation: String must be valid email format
+
+  Error 2:
+    Field:       $.user.age
+    Expected:    type: number
+    Actual:      type: string
+    Explanation: Expected number but got string
+
+  Error 3:
+    Field:       $.user
+    Expected:    required property: name
+    Actual:      missing
+    Explanation: Missing required property "name"
+
+Schema Context:
+
+  {
+    "type": "object",
+    "properties": {
+      "user": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "age": { "type": "number" }
+        },
+        "required": ["name", "email"]
+      }
+    }
+  }
+
+═══════════════════════════════════════════════════════════
+```
+
+### Custom Error Formatter Configuration
+
+```typescript
+import { validateResponse } from 'playwright-forge';
+
+const result = await validateResponse({
+  spec: './openapi.yaml',
+  path: '/users',
+  method: 'post',
+  status: 400,
+  responseBody: await response.json(),
+  
+  // Configure error formatter
+  errorFormatterConfig: {
+    errorFormat: 'short',          // 'short' | 'detailed'
+    maxErrors: 5,                  // Limit displayed errors
+    redactFields: ['password', 'token', 'apiKey'],  // Sensitive fields
+    showSchemaSnippet: false,      // Hide schema in output
+    debugRawErrors: true           // Include raw AJV errors
+  }
+});
+```
+
+### Short Format Example
+
+```typescript
+const result = await validateResponse({
+  spec: './openapi.yaml',
+  path: '/users/{id}',
+  method: 'get',
+  status: 200,
+  responseBody: data,
+  errorFormatterConfig: {
+    errorFormat: 'short',
+    showSchemaSnippet: false
+  }
+});
+```
+
+Output:
+```
+═══════════════════════════════════════════════════════════
+  OpenAPI Validation Failed
+═══════════════════════════════════════════════════════════
+
+Request Context:
+  Method:       GET
+  Path:         /users/{id}
+  Status:       200
+
+Validation Summary:
+  Total Errors: 2
+  Mode:         hybrid
+
+Validation Errors:
+
+  1. $.user.email: String must be valid email format
+  2. $.user.age: Expected number but got string
+
+═══════════════════════════════════════════════════════════
+```
+
+### Redacting Sensitive Fields
+
+```typescript
+import { validateResponse } from 'playwright-forge';
+
+const result = await validateResponse({
+  spec: './openapi.yaml',
+  path: '/auth/login',
+  method: 'post',
+  status: 400,
+  responseBody: {
+    username: 'john',
+    password: 'short'  // This will be redacted in error output
+  },
+  errorFormatterConfig: {
+    redactFields: ['password', 'token', 'secret', 'apiKey']
+  }
+});
+
+// In error output, password field will show [REDACTED]
+```
+
+### Using with OpenAPI Matcher
+
+```typescript
+import { expectApiResponse } from 'playwright-forge';
+
+const result = await expectApiResponse(response).toMatchOpenApiSchema({
+  spec: './openapi.yaml',
+  
+  // Configure error formatting
+  errorFormatterConfig: {
+    errorFormat: 'detailed',
+    maxErrors: 10,
+    redactFields: ['password', 'token'],
+    showSchemaSnippet: true
+  }
+});
+
+if (!result.valid) {
+  // Access formatted error
+  console.error(result.formattedError);
+}
+```
+
+### Debug Mode for Troubleshooting
+
+```typescript
+const result = await validateResponse({
+  spec: './openapi.yaml',
+  path: '/users',
+  method: 'post',
+  status: 201,
+  responseBody: data,
+  errorFormatterConfig: {
+    debugRawErrors: true  // Include raw AJV error objects
+  }
+});
+
+// Output includes raw AJV errors for deep debugging:
+// Raw AJV Errors (debug):
+// [
+//   {
+//     "keyword": "type",
+//     "instancePath": "/user/age",
+//     "schemaPath": "#/properties/user/properties/age/type",
+//     "params": { "type": "number" },
+//     "message": "must be number"
+//   }
+// ]
+```
+
+### Production vs Development Configuration
+
+```typescript
+// config/error-formatter.ts
+export const productionErrorConfig = {
+  errorFormat: 'short' as const,
+  maxErrors: 3,
+  redactFields: ['password', 'token', 'apiKey', 'secret'],
+  showSchemaSnippet: false,
+  debugRawErrors: false
+};
+
+export const developmentErrorConfig = {
+  errorFormat: 'detailed' as const,
+  maxErrors: 20,
+  redactFields: [],
+  showSchemaSnippet: true,
+  debugRawErrors: true
+};
+
+// In tests
+const errorConfig = process.env.NODE_ENV === 'production'
+  ? productionErrorConfig
+  : developmentErrorConfig;
+
+const result = await validateResponse({
+  spec: './openapi.yaml',
+  path: '/users',
+  method: 'get',
+  status: 200,
+  responseBody: data,
+  errorFormatterConfig: errorConfig
+});
+```
+
+### Standalone Error Formatter
+
+You can also use the error formatter independently:
+
+```typescript
+import { OpenApiErrorFormatter } from 'playwright-forge';
+import { ErrorObject } from 'ajv';
+
+const formatter = new OpenApiErrorFormatter({
+  errorFormat: 'detailed',
+  maxErrors: 10,
+  redactFields: ['password'],
+  showSchemaSnippet: true
+});
+
+const ajvErrors: ErrorObject[] = [
+  // ... your AJV errors
+];
+
+const context = {
+  method: 'POST',
+  resolvedPath: '/users',
+  actualUrl: 'https://api.example.com/users',
+  status: 400,
+  contentType: 'application/json',
+  validationMode: 'strict' as const,
+  schema: { /* schema object */ }
+};
+
+const formattedMessage = formatter.format(ajvErrors, context);
+console.error(formattedMessage);
+```
+
+This provides maximum flexibility for custom validation scenarios or integration with other validation tools.

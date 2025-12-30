@@ -3,6 +3,7 @@ import addFormats from 'ajv-formats';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
+import { OpenApiErrorFormatter, ErrorFormatterConfig, ValidationContext } from './openapiErrorFormatter';
 
 /**
  * Fallback mode when schema cannot be resolved
@@ -107,6 +108,11 @@ export interface OpenApiValidationOptions {
    * @default false
    */
   debugResolution?: boolean;
+
+  /**
+   * Error formatter configuration
+   */
+  errorFormatterConfig?: ErrorFormatterConfig;
 }
 
 /**
@@ -124,6 +130,8 @@ export interface ValidationResult {
   skipped?: boolean;
   fallbackUsed?: boolean;
   warnOnlyMode?: boolean;
+  /** Formatted error message (human-readable) */
+  formattedError?: string;
 }
 
 /**
@@ -560,6 +568,23 @@ export class OpenApiValidator {
       const valid = validator(responseBody);
 
       if (!valid) {
+        const ajvErrors = validator.errors || [];
+        
+        // Create error formatter
+        const formatter = new OpenApiErrorFormatter(options.errorFormatterConfig);
+        
+        // Build validation context
+        const validationContext: ValidationContext = {
+          method,
+          resolvedPath: apiPath,
+          status,
+          validationMode: strict ? 'strict' : allowAdditionalProperties ? 'tolerant' : 'hybrid',
+          schema: finalSchema,
+        };
+        
+        // Format errors
+        const formattedError = formatter.format(ajvErrors, validationContext);
+        
         const errors = validator.errors?.map(err => {
           const path = err.instancePath || 'root';
           const message = err.message || 'validation failed';
@@ -570,13 +595,14 @@ export class OpenApiValidator {
         // Warn only mode
         if (warnOnly) {
           console.warn(`[OpenApiValidator] Validation failed (warnOnly mode):`);
-          errors.forEach(err => console.warn(`  - ${err}`));
+          console.warn(formattedError);
           return {
             valid: true,
             errors: [],
             warnings: [...warnings, ...errors],
             schema: finalSchema,
             ajvErrors: validator.errors,
+            formattedError,
             path: apiPath,
             method,
             status,
@@ -590,6 +616,7 @@ export class OpenApiValidator {
           warnings,
           schema: finalSchema,
           ajvErrors: validator.errors,
+          formattedError,
           path: apiPath,
           method,
           status,
