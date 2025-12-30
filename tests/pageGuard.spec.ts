@@ -256,26 +256,35 @@ test.describe('Page Guard Tests', () => {
   test('should work with debug mode enabled', async ({ page }) => {
     await page.goto('data:text/html,<html><body><h1 id="header">Header</h1></body></html>');
     
-    // Capture console logs
+    // Use a spy pattern to capture console logs without interfering
     const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: any[]) => {
+    const logSpy = (...args: any[]) => {
       logs.push(args.join(' '));
-      originalLog(...args);
     };
     
-    const guard = createPageGuard(page, {
-      debug: true,
-      mandatorySelectors: ['#header']
-    });
+    // Temporarily replace console.log
+    const originalLog = console.log;
+    console.log = logSpy;
     
-    await guard.waitForReady();
-    
-    console.log = originalLog;
-    
-    // Verify debug logs were created
-    const pageGuardLogs = logs.filter(log => log.includes('[PageGuard]'));
-    expect(pageGuardLogs.length).toBeGreaterThan(0);
+    try {
+      const guard = createPageGuard(page, {
+        debug: true,
+        mandatorySelectors: ['#header']
+      });
+      
+      await guard.waitForReady();
+      
+      // Verify debug logs were created
+      const pageGuardLogs = logs.filter(log => log.includes('[PageGuard]'));
+      expect(pageGuardLogs.length).toBeGreaterThan(0);
+      
+      // Verify specific log messages
+      expect(logs.some(log => log.includes('Waiting for page ready'))).toBe(true);
+      expect(logs.some(log => log.includes('Page is ready'))).toBe(true);
+    } finally {
+      // Always restore console.log
+      console.log = originalLog;
+    }
   });
 
   test('should retry custom action', async ({ page }) => {

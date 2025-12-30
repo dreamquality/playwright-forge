@@ -256,10 +256,14 @@ export class PageGuard {
   }
 
   /**
-   * Guard that ensures element is visible and enabled before interacting
+   * Guard that ensures element is visible and enabled before interacting.
+   * 
+   * In strict mode: throws error if element is not ready
+   * In tolerant mode: logs warning but still returns locator (allowing caller to decide)
+   * 
    * @param selector - Element selector
    * @param timeout - Optional timeout
-   * @returns The locator
+   * @returns The locator (always returned, even if not ready in tolerant mode)
    */
   async guardElement(selector: string, timeout?: number): Promise<Locator> {
     const effectiveTimeout = timeout ?? this.config.timeout;
@@ -273,7 +277,8 @@ export class PageGuard {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.handleError(`Element guard failed for "${selector}": ${errorMessage}`);
-      // Return locator even in tolerant mode
+      // In tolerant mode, return locator anyway to allow caller flexibility
+      // The locator can still be used but may fail on interaction
       return this.page.locator(selector);
     }
   }
@@ -308,8 +313,15 @@ export class PageGuard {
     }
 
     const errorMessage = `${actionName} failed after ${this.config.retryCount} attempts: ${lastError?.message}`;
-    this.handleError(errorMessage);
-    throw lastError || new Error(errorMessage);
+    
+    if (this.config.mode === 'strict') {
+      throw lastError || new Error(errorMessage);
+    } else {
+      // In tolerant mode, log warning but still throw for retry actions
+      // as they indicate critical action failures
+      this.handleError(errorMessage);
+      throw lastError || new Error(errorMessage);
+    }
   }
 
   /**
