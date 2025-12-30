@@ -107,13 +107,88 @@ diagnosticsFixture('Diagnostics test', async ({ page, diagnostics }) => {
 
 ## Utilities
 
-### OpenAPI Schema Validation
-Validate API responses against OpenAPI specifications with automatic schema extraction and $ref resolution.
+### OpenAPI Schema Validation (One-Liner API)
+Validate API responses with automatic method/path/status detection.
+
+```typescript
+import { expectApiResponse } from 'playwright-forge';
+
+// One-liner - auto-detects method, path, status from response!
+const result = await expectApiResponse(response).toMatchOpenApiSchema({
+  spec: 'https://api.example.com/openapi.yaml'
+});
+
+// With optional overrides
+const result = await expectApiResponse(response).toMatchOpenApiSchema({
+  spec: './openapi.json',
+  method: 'get',      // Optional: override auto-detected method
+  path: '/users/123', // Optional: override auto-detected path
+  status: 200,        // Optional: override auto-detected status
+  strict: true,       // Optional: reject additional properties
+  enableCache: true,  // Optional: cache OpenAPI spec (default: true)
+  cacheTTL: 60000,    // Optional: cache duration in ms
+  debug: true         // Optional: enable debug logging
+});
+```
+
+**Advanced Usage:**
+```typescript
+import { OpenApiMatcher } from 'playwright-forge';
+
+// Create matcher with custom configuration
+const matcher = new OpenApiMatcher({
+  strict: true,
+  enableCache: true,
+  cacheTTL: 300000,  // 5 minutes
+  debug: true,
+  pathResolver: (templatePath, actualPath) => {
+    // Custom path matching logic
+    return templatePath.toLowerCase() === actualPath.toLowerCase();
+  },
+  errorFormatter: (errors, context) => {
+    return `Custom error for ${context.method} ${context.path}`;
+  }
+});
+
+// Validate with full control
+const result = await matcher.validateResponse(response, spec, {
+  method: 'post',
+  path: '/users',
+  status: 201
+});
+```
+
+**Features:**
+- ⚡ **One-liner API** - Auto-detects method, path, and status from Playwright response
+- 📥 **Flexible spec loading** - URL, local file (.yaml/.yml/.json), or JS object
+- 🔗 **Automatic $ref resolution** - Handles internal references
+- 🎯 **Smart path matching** - Matches `/users/123` to `/users/{id}` automatically
+- 💾 **Per-worker caching** - Parallel-safe in-memory cache with optional TTL
+- ⚙️ **Highly configurable** - Custom path resolvers, error formatters, AJV options
+- 📊 **Detailed errors** - Clear validation messages with schema context
+- 🛡️ **Framework-agnostic** - Works with any HTTP client, optimized for Playwright
+
+**Cache Management:**
+```typescript
+import { OpenApiMatcher } from 'playwright-forge';
+
+// Check cache size
+OpenApiMatcher.getCacheSize();
+
+// Clear entire cache
+OpenApiMatcher.clearCache();
+
+// Clear specific spec
+OpenApiMatcher.clearCache('https://api.example.com/openapi.yaml');
+```
+
+### Legacy OpenAPI Validation
+For manual validation without auto-detection:
 
 ```typescript
 import { validateResponse, assertValidResponse } from 'playwright-forge';
 
-// Validate against OpenAPI spec (supports URL, file path, or object)
+// Manual validation
 const result = await validateResponse({
   spec: 'https://api.example.com/openapi.yaml',
   path: '/users/{id}',
@@ -129,18 +204,9 @@ await assertValidResponse({
   method: 'get',
   status: 200,
   responseBody: await response.json(),
-  strict: true // Reject additional properties
+  strict: true
 });
 ```
-
-Features:
-- Load specs from URL, local file (.yaml/.yml/.json), or JS object
-- Automatic $ref resolution
-- Runtime schema extraction by path + method + status
-- Configurable strict/non-strict modes
-- In-memory spec caching
-- Custom AJV options support
-- Clear validation error messages with schema details
 
 ### JSON Schema Validation
 Validate JSON data against schemas using AJV.

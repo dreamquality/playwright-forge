@@ -13,3 +13,10 @@ export {
   type OpenApiValidationOptions,
   type ValidationResult 
 } from './openapiValidator';
+export {
+  OpenApiMatcher,
+  expectApiResponse,
+  type OpenApiMatcherConfig,
+  type MatcherValidationResult,
+  type ValidationContext
+} from './openapiMatcher';

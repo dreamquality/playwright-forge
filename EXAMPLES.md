@@ -622,3 +622,231 @@ test('Validate without caching', async ({ request }) => {
   });
 });
 ```
+
+## Enhanced OpenAPI Matcher (One-Liner API)
+
+### One-Liner API with Auto-Detection
+
+```typescript
+import { test } from '@playwright/test';
+import { expectApiResponse } from 'playwright-forge';
+
+test('validate API with one-liner', async ({ request }) => {
+  const response = await request.get('https://api.example.com/users/123');
+  
+  // Auto-detects method, path, status from response!
+  const result = await expectApiResponse(response).toMatchOpenApiSchema({
+    spec: 'https://api.example.com/openapi.yaml'
+  });
+  
+  expect(result.valid).toBe(true);
+});
+```
+
+### With Manual Overrides
+
+```typescript
+// Override auto-detected values if needed
+const result = await expectApiResponse(response).toMatchOpenApiSchema({
+  spec: './openapi.json',
+  method: 'get',  // Optional override
+  path: '/users/123',  // Optional override
+  status: 200  // Optional override
+});
+```
+
+### Advanced Configuration
+
+```typescript
+import { OpenApiMatcher } from 'playwright-forge';
+
+// Create matcher with custom configuration
+const matcher = new OpenApiMatcher({
+  strict: true,  // Reject additional properties
+  enableCache: true,  // Enable spec caching
+  cacheTTL: 60000,  // Cache for 60 seconds
+  debug: true,  // Enable debug logging
+  ajvOptions: {
+    allErrors: true,
+    verbose: true
+  }
+});
+
+test('advanced validation', async ({ request }) => {
+  const response = await request.post('https://api.example.com/users', {
+    data: { name: 'John', email: 'john@example.com' }
+  });
+  
+  const result = await matcher.validateResponse(
+    response,
+    'https://api.example.com/openapi.yaml',
+    {
+      method: 'post',
+      path: '/users',
+      status: 201
+    }
+  );
+  
+  if (!result.valid) {
+    console.log('Validation errors:', result.errors);
+    console.log('Expected schema:', result.schema);
+  }
+});
+```
+
+### Custom Path Resolver
+
+```typescript
+// Custom logic for matching API paths
+const matcher = new OpenApiMatcher({
+  pathResolver: (templatePath, actualPath) => {
+    // Case-insensitive matching
+    return templatePath.toLowerCase() === actualPath.toLowerCase();
+  }
+});
+```
+
+### Custom Error Formatter
+
+```typescript
+const matcher = new OpenApiMatcher({
+  errorFormatter: (errors, context) => {
+    return `Validation failed for ${context.method.toUpperCase()} ${context.path}:\n` +
+      errors.map(err => `- ${err.message}`).join('\n');
+  }
+});
+```
+
+### Cache Management
+
+```typescript
+import { OpenApiMatcher } from 'playwright-forge';
+
+// Check cache size
+console.log('Cache entries:', OpenApiMatcher.getCacheSize());
+
+// Clear entire cache
+OpenApiMatcher.clearCache();
+
+// Clear specific spec from cache
+OpenApiMatcher.clearCache('https://api.example.com/openapi.yaml');
+
+// Disable caching for specific validation
+const matcher = new OpenApiMatcher({ enableCache: false });
+```
+
+### Per-Worker Cache
+
+The OpenAPI matcher uses per-worker in-memory caching, making it parallel-safe:
+
+```typescript
+// Each Playwright worker has its own cache
+// No race conditions or shared state issues
+
+test.describe.parallel('parallel tests', () => {
+  test('test 1', async ({ request }) => {
+    // Uses worker 1's cache
+    const response = await request.get('/api/users/1');
+    await expectApiResponse(response).toMatchOpenApiSchema({
+      spec: './openapi.yaml'
+    });
+  });
+  
+  test('test 2', async ({ request }) => {
+    // Uses worker 2's cache (independent)
+    const response = await request.get('/api/products/1');
+    await expectApiResponse(response).toMatchOpenApiSchema({
+      spec: './openapi.yaml'
+    });
+  });
+});
+```
+
+### Complete Example with All Features
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { OpenApiMatcher, expectApiResponse } from 'playwright-forge';
+
+// Global matcher with configuration
+const matcher = new OpenApiMatcher({
+  strict: false,
+  allowAdditionalProperties: true,
+  enableCache: true,
+  cacheTTL: 300000,  // 5 minutes
+  debug: process.env.DEBUG === 'true',
+  pathResolver: (template, actual) => {
+    // Custom path matching logic
+    const pattern = template.replace(/{[^}]+}/g, '[^/]+');
+    return new RegExp(`^${pattern}$`).test(actual);
+  },
+  errorFormatter: (errors, context) => {
+    return `❌ OpenAPI Validation Failed\n` +
+      `  ${context.method.toUpperCase()} ${context.path} (${context.status})\n\n` +
+      `Errors:\n` +
+      errors.map(err => `  • ${err.instancePath || 'root'}: ${err.message}`).join('\n');
+  }
+});
+
+test.describe('API Tests with OpenAPI Validation', () => {
+  const specPath = './specs/openapi.yaml';
+  
+  test.beforeAll(() => {
+    // Pre-load spec into cache
+    matcher.loadSpec(specPath);
+  });
+  
+  test.afterAll(() => {
+    // Clear cache after tests
+    OpenApiMatcher.clearCache();
+  });
+  
+  test('validate user creation', async ({ request }) => {
+    const response = await request.post('https://api.example.com/users', {
+      data: {
+        name: 'Jane Doe',
+        email: 'jane@example.com'
+      }
+    });
+    
+    // One-liner validation
+    const result = await expectApiResponse(response).toMatchOpenApiSchema({
+      spec: specPath,
+      status: 201  // Override if needed
+    });
+    
+    expect(result.valid).toBe(true);
+    expect(result.context?.schema).toBeDefined();
+  });
+  
+  test('validate user retrieval', async ({ request }) => {
+    const response = await request.get('https://api.example.com/users/123');
+    
+    // Using configured matcher
+    const result = await matcher.validateResponse(response, specPath);
+    
+    if (!result.valid) {
+      console.error(result.message);
+      console.error('Schema:', JSON.stringify(result.schema, null, 2));
+    }
+    
+    expect(result.valid).toBe(true);
+  });
+  
+  test('handle validation errors gracefully', async ({ request }) => {
+    const response = await request.get('https://api.example.com/invalid');
+    
+    const result = await expectApiResponse(response).toMatchOpenApiSchema({
+      spec: specPath,
+      strict: true
+    });
+    
+    // Even if validation fails, we get detailed error info
+    if (!result.valid) {
+      expect(result.errors).toBeDefined();
+      expect(result.message).toContain('validation');
+      expect(result.context).toBeDefined();
+    }
+  });
+});
+```
