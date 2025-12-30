@@ -5,4 +5,4 @@ export { poll, pollUntilValue, type PollOptions } from './polling';
 export { DataFactory, faker } from './dataFactory';
 export { SoftAssertions, softAssertions } from './softAssertions';
 export { PageGuard, createPageGuard, type PageGuardOptions } from './pageGuard';
-export { FileAssertions } from './fileAssertions';
+export { FileAssertions, FileAssertionsAsync } from './fileAssertions';
