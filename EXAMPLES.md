@@ -401,3 +401,224 @@ npm install playwright-forge @playwright/test
 ```bash
 npx playwright test
 ```
+
+## OpenAPI Schema Validation
+
+### Basic Usage with Remote OpenAPI Spec
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { apiFixture, validateResponse } from 'playwright-forge';
+
+apiFixture('Validate user API response', async ({ api }) => {
+  const response = await api.get('https://api.example.com/users/123');
+  const responseBody = await response.json();
+
+  // Validate against OpenAPI spec
+  const result = await validateResponse({
+    spec: 'https://api.example.com/openapi.yaml',
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody
+  });
+
+  expect(result.valid).toBe(true);
+  if (!result.valid) {
+    console.log('Validation errors:', result.errors);
+  }
+});
+```
+
+### Using Local OpenAPI Spec File
+
+```typescript
+import { assertValidResponse } from 'playwright-forge';
+
+test('Validate product API with local spec', async ({ request }) => {
+  const response = await request.get('https://api.example.com/products/456');
+  const responseBody = await response.json();
+
+  // Throws error if validation fails
+  await assertValidResponse({
+    spec: './specs/openapi.json', // Local file path
+    path: '/products/{id}',
+    method: 'get',
+    status: 200,
+    responseBody
+  });
+});
+```
+
+### Using Loaded OpenAPI Spec Object
+
+```typescript
+import { OpenApiValidator } from 'playwright-forge';
+import { loadYaml } from 'playwright-forge';
+
+test('Validate with pre-loaded spec', async ({ request }) => {
+  // Load spec once
+  const spec = loadYaml('./specs/openapi.yaml');
+  
+  // Create validator instance for reuse
+  const validator = new OpenApiValidator();
+
+  // Test multiple endpoints
+  const userResponse = await request.get('/users/1');
+  const userResult = await validator.validateResponse({
+    spec,
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody: await userResponse.json()
+  });
+  expect(userResult.valid).toBe(true);
+
+  const productsResponse = await request.get('/products');
+  const productsResult = await validator.validateResponse({
+    spec,
+    path: '/products',
+    method: 'get',
+    status: 200,
+    responseBody: await productsResponse.json()
+  });
+  expect(productsResult.valid).toBe(true);
+});
+```
+
+### Strict Mode Validation
+
+```typescript
+// Reject additional properties not in schema
+await assertValidResponse({
+  spec: openapiSpec,
+  path: '/users/{id}',
+  method: 'get',
+  status: 200,
+  responseBody,
+  strict: true // Fails if extra fields present
+});
+```
+
+### Custom AJV Options
+
+```typescript
+const validator = new OpenApiValidator({
+  allErrors: true,
+  verbose: true,
+  strict: 'log'
+});
+
+const result = await validator.validateResponse({
+  spec: openapiSpec,
+  path: '/users/{id}',
+  method: 'post',
+  status: 201,
+  responseBody
+});
+```
+
+### Handling Validation Errors
+
+```typescript
+const result = await validateResponse({
+  spec: 'https://api.example.com/openapi.yaml',
+  path: '/users/{id}',
+  method: 'get',
+  status: 200,
+  responseBody
+});
+
+if (!result.valid) {
+  console.error('Validation failed for:', {
+    path: result.path,
+    method: result.method,
+    status: result.status
+  });
+  
+  console.error('Errors:');
+  result.errors.forEach(err => console.error('  -', err));
+  
+  console.error('Expected schema:', JSON.stringify(result.schema, null, 2));
+  
+  // Access raw AJV errors for detailed info
+  if (result.ajvErrors) {
+    console.error('AJV errors:', result.ajvErrors);
+  }
+}
+```
+
+### Complete API Test Example
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { apiFixture, DataFactory, assertValidResponse } from 'playwright-forge';
+
+const openapiSpec = 'https://api.example.com/openapi.yaml';
+
+apiFixture('Complete user API test', async ({ api, cleanup }) => {
+  // Generate test data
+  const newUser = DataFactory.user();
+
+  // Create user
+  const createResponse = await api.post('https://api.example.com/users', {
+    data: {
+      name: `${newUser.firstName} ${newUser.lastName}`,
+      email: newUser.email
+    }
+  });
+
+  // Validate creation response
+  await assertValidResponse({
+    spec: openapiSpec,
+    path: '/users',
+    method: 'post',
+    status: 201,
+    responseBody: await createResponse.json()
+  });
+
+  const userId = (await createResponse.json()).id;
+
+  // Get user
+  const getResponse = await api.get(`https://api.example.com/users/${userId}`);
+  
+  // Validate get response
+  await assertValidResponse({
+    spec: openapiSpec,
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody: await getResponse.json()
+  });
+
+  // Cleanup
+  cleanup.addTask(async () => {
+    await api.delete(`https://api.example.com/users/${userId}`);
+  });
+});
+```
+
+### Cache Management
+
+```typescript
+import { OpenApiValidator } from 'playwright-forge';
+
+test.beforeAll(() => {
+  // Clear spec cache before test suite
+  OpenApiValidator.clearCache();
+});
+
+test('Validate without caching', async ({ request }) => {
+  const response = await request.get('/users/1');
+  
+  // Don't cache this spec
+  await assertValidResponse({
+    spec: 'https://api.example.com/openapi.yaml',
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    cacheSpec: false
+  });
+});
+```

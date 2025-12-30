@@ -6,3 +6,10 @@ export { DataFactory, faker } from './dataFactory';
 export { SoftAssertions, softAssertions } from './softAssertions';
 export { PageGuard, createPageGuard, type PageGuardOptions } from './pageGuard';
 export { FileAssertions, FileAssertionsAsync } from './fileAssertions';
+export { 
+  OpenApiValidator, 
+  validateResponse, 
+  assertValidResponse,
+  type OpenApiValidationOptions,
+  type ValidationResult 
+} from './openapiValidator';

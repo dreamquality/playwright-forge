@@ -107,6 +107,41 @@ diagnosticsFixture('Diagnostics test', async ({ page, diagnostics }) => {
 
 ## Utilities
 
+### OpenAPI Schema Validation
+Validate API responses against OpenAPI specifications with automatic schema extraction and $ref resolution.
+
+```typescript
+import { validateResponse, assertValidResponse } from 'playwright-forge';
+
+// Validate against OpenAPI spec (supports URL, file path, or object)
+const result = await validateResponse({
+  spec: 'https://api.example.com/openapi.yaml',
+  path: '/users/{id}',
+  method: 'get',
+  status: 200,
+  responseBody: await response.json()
+});
+
+// Or assert (throws on failure)
+await assertValidResponse({
+  spec: './openapi.json',
+  path: '/users/{id}',
+  method: 'get',
+  status: 200,
+  responseBody: await response.json(),
+  strict: true // Reject additional properties
+});
+```
+
+Features:
+- Load specs from URL, local file (.yaml/.yml/.json), or JS object
+- Automatic $ref resolution
+- Runtime schema extraction by path + method + status
+- Configurable strict/non-strict modes
+- In-memory spec caching
+- Custom AJV options support
+- Clear validation error messages with schema details
+
 ### JSON Schema Validation
 Validate JSON data against schemas using AJV.
 
