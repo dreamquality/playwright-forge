@@ -1,5 +1,9 @@
 # playwright-forge
 
+[![CI](https://github.com/dreamquality/playwright-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/dreamquality/playwright-forge/actions/workflows/ci.yml)
+[![npm version](https://badge.fury.io/js/playwright-forge.svg)](https://www.npmjs.com/package/playwright-forge)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Reusable fixtures and helpers to speed up Playwright UI and API tests.
 
 ## Features
@@ -345,6 +349,22 @@ npm test
 # Lint
 npm run lint
 ```
+
+## CI/CD
+
+This package uses GitHub Actions for continuous integration and deployment:
+
+- **CI Workflow** - Automatically runs tests, linting, and builds on every push and PR
+  - Tests on Node.js 18.x and 20.x
+  - Runs security audit
+  - Uploads test results and coverage
+
+- **Publish Workflow** - Automatically publishes to npm when a GitHub release is created
+  - Verifies version matches release tag
+  - Runs all tests before publishing
+  - Publishes to npm with public access
+
+See [.github/workflows/README.md](.github/workflows/README.md) for detailed documentation.
 
 ## License
 
