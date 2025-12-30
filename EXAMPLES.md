@@ -1494,3 +1494,330 @@ console.error(formattedMessage);
 ```
 
 This provides maximum flexibility for custom validation scenarios or integration with other validation tools.
+
+## CI Annotations
+
+The CI Annotations Exporter exposes OpenAPI validation, drift, and coverage issues directly inside CI systems (PR checks / job summaries).
+
+### Basic Usage
+
+```typescript
+import { test } from '@playwright/test';
+import { CIAnnotationsExporter, createValidationErrorAnnotation } from 'playwright-forge';
+
+const exporter = new CIAnnotationsExporter({
+  ciProvider: 'auto', // Auto-detect CI
+  maxAnnotations: 50,
+  failOnError: false,
+});
+
+test('API validation with CI annotations', async ({ request }) => {
+  const response = await request.get('https://api.example.com/users');
+  
+  // Validate response...
+  if (!response.ok()) {
+    exporter.addAnnotation(createValidationErrorAnnotation(
+      `Invalid response: ${response.status()}`,
+      {
+        method: 'GET',
+        path: '/users',
+        status: response.status(),
+      },
+      'openapi.yaml',
+      42
+    ));
+  }
+});
+
+test.afterAll(() => {
+  // Export all annotations at the end
+  exporter.export();
+});
+```
+
+### GitHub Actions Integration
+
+```typescript
+import { CIAnnotationsExporter } from 'playwright-forge';
+
+// Explicit GitHub Actions mode
+const exporter = new CIAnnotationsExporter({
+  ciProvider: 'github',
+  severityMapping: {
+    validation_error: 'error',
+    drift_warning: 'warning',
+    undocumented_endpoint: 'notice',
+  },
+  maxAnnotations: 100,
+  failOnError: true, // Fail build on errors
+});
+
+// Add annotations during tests
+exporter.addAnnotation({
+  type: 'validation_error',
+  severity: 'error',
+  message: 'Response does not match OpenAPI schema',
+  file: 'openapi.yaml',
+  line: 150,
+  title: 'Schema Validation Failed',
+  context: {
+    method: 'POST',
+    path: '/users',
+    status: 400,
+  },
+});
+
+// Export creates GitHub Actions annotations and summary
+exporter.export();
+```
+
+Output in GitHub Actions:
+```
+::error file=openapi.yaml,line=150,title=Schema Validation Failed::Response does not match OpenAPI schema
+```
+
+### GitLab CI Integration
+
+```typescript
+import { CIAnnotationsExporter } from 'playwright-forge';
+
+const exporter = new CIAnnotationsExporter({
+  ciProvider: 'gitlab',
+  enableAnnotations: true,
+});
+
+// Add drift detection annotation
+exporter.addAnnotation({
+  type: 'drift_warning',
+  severity: 'notice',
+  message: 'Response field "phoneNumber" not in OpenAPI schema',
+  file: 'openapi.yaml',
+  line: 200,
+  context: {
+    method: 'GET',
+    path: '/users/{id}',
+    status: 200,
+  },
+});
+
+// Generates Code Quality report for GitLab
+exporter.export();
+```
+
+Output in GitLab CI:
+- Console: `[NOTICE] openapi.yaml:200: Response field "phoneNumber" not in OpenAPI schema`
+- Creates `gl-code-quality-report.json` for Code Quality widget
+
+### CircleCI Integration
+
+```typescript
+import { CIAnnotationsExporter } from 'playwright-forge';
+
+const exporter = new CIAnnotationsExporter({
+  ciProvider: 'circleci',
+  maxAnnotations: 50,
+});
+
+// Add undocumented endpoint annotation
+exporter.addAnnotation({
+  type: 'undocumented_endpoint',
+  severity: 'notice',
+  message: 'Endpoint /admin/settings not documented in OpenAPI spec',
+  context: {
+    method: 'GET',
+    path: '/admin/settings',
+  },
+});
+
+// Creates structured console output and artifacts
+exporter.export();
+```
+
+Output in CircleCI:
+```
+ℹ️ NOTICE: Endpoint /admin/settings not documented in OpenAPI spec (GET /admin/settings)
+
+╔════════════════════════════════════════╗
+║  OpenAPI Validation Summary            ║
+╠════════════════════════════════════════╣
+║  Total Issues: 1                       ║
+║  ❌ Errors:    0                       ║
+║  ⚠️  Warnings:  0                       ║
+║  ℹ️  Notices:   1                       ║
+╚════════════════════════════════════════╝
+
+📊 Full report saved to: /tmp/circle-artifacts/openapi-validation-report.json
+```
+
+### Advanced Configuration
+
+```typescript
+import { CIAnnotationsExporter, type CIAnnotationsConfig } from 'playwright-forge';
+
+const config: CIAnnotationsConfig = {
+  // Enable/disable annotations
+  enableAnnotations: true,
+  
+  // CI provider (auto-detect or specify)
+  ciProvider: 'auto', // 'github' | 'gitlab' | 'circleci' | 'auto' | 'none'
+  
+  // Custom severity mapping
+  severityMapping: {
+    validation_error: 'error',
+    missing_schema: 'warning',
+    broken_ref: 'warning',
+    undocumented_endpoint: 'notice',
+    coverage_threshold: 'warning',
+    drift_warning: 'notice',
+  },
+  
+  // Limit annotations
+  maxAnnotations: 50,
+  
+  // Fail build on errors
+  failOnError: false,
+  
+  // Coverage threshold (0-100)
+  coverageThreshold: 80,
+  
+  // Links to artifacts
+  linkToArtifacts: {
+    coverage: 'https://example.com/coverage',
+    report: 'https://example.com/report',
+  },
+  
+  // Ignore rules
+  ignoreRules: {
+    paths: ['/health', '/metrics', '/ping'],
+    methods: ['OPTIONS', 'HEAD'],
+  },
+};
+
+const exporter = new CIAnnotationsExporter(config);
+
+// Use exporter in tests...
+```
+
+### Helper Functions
+
+```typescript
+import {
+  createValidationErrorAnnotation,
+  createDriftWarningAnnotation,
+  createUndocumentedEndpointAnnotation,
+} from 'playwright-forge';
+
+// Create validation error annotation
+const validationError = createValidationErrorAnnotation(
+  'Invalid email format',
+  { method: 'POST', path: '/users', status: 400 },
+  'openapi.yaml',
+  100
+);
+
+// Create drift warning annotation
+const driftWarning = createDriftWarningAnnotation(
+  'Extra field "metadata" not in schema',
+  { method: 'GET', path: '/users', status: 200 },
+  'openapi.yaml',
+  200
+);
+
+// Create undocumented endpoint annotation
+const undocumented = createUndocumentedEndpointAnnotation(
+  'Endpoint /internal/debug not in OpenAPI spec',
+  { method: 'GET', path: '/internal/debug' }
+);
+
+exporter.addAnnotation(validationError);
+exporter.addAnnotation(driftWarning);
+exporter.addAnnotation(undocumented);
+```
+
+### Integration with OpenAPI Validator
+
+```typescript
+import { test } from '@playwright/test';
+import { validateResponse, CIAnnotationsExporter, createValidationErrorAnnotation } from 'playwright-forge';
+
+const exporter = new CIAnnotationsExporter();
+
+test('Validate API with CI annotations', async ({ request }) => {
+  const response = await request.get('https://api.example.com/users/1');
+  const body = await response.json();
+  
+  const result = await validateResponse({
+    spec: './openapi.yaml',
+    path: '/users/{id}',
+    method: 'get',
+    status: response.status(),
+    responseBody: body,
+  });
+  
+  if (!result.valid && result.errors) {
+    // Add each validation error as annotation
+    for (const error of result.errors) {
+      exporter.addAnnotation(createValidationErrorAnnotation(
+        error.message || 'Validation failed',
+        {
+          method: 'GET',
+          path: '/users/{id}',
+          status: response.status(),
+        },
+        'openapi.yaml'
+      ));
+    }
+  }
+});
+
+test.afterAll(() => {
+  exporter.export();
+});
+```
+
+### Programmatic Access
+
+```typescript
+import { CIAnnotationsExporter } from 'playwright-forge';
+
+const exporter = new CIAnnotationsExporter();
+
+// Add annotations
+exporter.addAnnotation({
+  type: 'validation_error',
+  severity: 'error',
+  message: 'Test error',
+});
+
+// Get all annotations
+const annotations = exporter.getAnnotations();
+console.log(`Total annotations: ${annotations.length}`);
+
+// Get detected CI provider
+const provider = exporter.getDetectedProvider();
+console.log(`CI Provider: ${provider}`); // 'github' | 'gitlab' | 'circleci' | 'none'
+
+// Clear all annotations
+exporter.clear();
+
+// Export (with deduplication and limiting)
+exporter.export();
+```
+
+### CI Environment Detection
+
+The exporter automatically detects the CI environment:
+
+- **GitHub Actions**: Checks `GITHUB_ACTIONS=true`
+- **GitLab CI**: Checks `GITLAB_CI=true`
+- **CircleCI**: Checks `CIRCLECI=true`
+
+You can also manually specify the provider:
+
+```typescript
+// Force specific provider
+const exporter = new CIAnnotationsExporter({ ciProvider: 'github' });
+
+// Disable auto-detection
+const exporter = new CIAnnotationsExporter({ ciProvider: 'none' });
+```

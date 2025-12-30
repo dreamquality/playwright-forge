@@ -26,3 +26,17 @@ export {
   type FormattedError,
   type ValidationContext
 } from './openapiErrorFormatter';
+export {
+  CIAnnotationsExporter,
+  GitHubActionsAdapter,
+  GitLabCIAdapter,
+  CircleCIAdapter,
+  createValidationErrorAnnotation,
+  createDriftWarningAnnotation,
+  createUndocumentedEndpointAnnotation,
+  type Annotation,
+  type AnnotationSeverity,
+  type AnnotationType,
+  type CIProvider,
+  type CIAnnotationsConfig
+} from './ciAnnotations';
