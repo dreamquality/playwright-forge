@@ -850,3 +850,350 @@ test.describe('API Tests with OpenAPI Validation', () => {
   });
 });
 ```
+
+## OpenAPI Resilient Validation
+
+### Handling Incomplete or Broken Specs
+
+The OpenAPI validation utilities can handle incomplete or broken specifications gracefully:
+
+#### Basic Resilient Validation
+
+```typescript
+import { test } from '@playwright/test';
+import { validateResponse, expectApiResponse } from 'playwright-forge';
+
+test('Validate with incomplete spec - warn mode', async ({ request }) => {
+  const response = await request.get('/api/users/123');
+  
+  const result = await validateResponse({
+    spec: './incomplete-openapi.yaml',
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    // Skip validation if schema missing, log warning
+    fallbackMode: 'warn'
+  });
+  
+  // Check if validation was skipped
+  if (result.skipped) {
+    console.log('Validation skipped:', result.warnings);
+  }
+  
+  expect(result.valid).toBe(true);
+});
+
+test('Validate with loose fallback', async ({ request }) => {
+  const response = await request.get('/api/users/123');
+  
+  const result = await validateResponse({
+    spec: './broken-spec.yaml',
+    path: '/users/{id}',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    // Use basic type validation if schema missing
+    fallbackMode: 'loose',
+    allowBrokenRefs: true
+  });
+  
+  if (result.fallbackUsed) {
+    console.log('Used loose validation');
+  }
+  
+  expect(result.valid).toBe(true);
+});
+```
+
+#### Strict Mode vs Tolerant Mode
+
+```typescript
+import { test } from '@playwright/test';
+import { validateResponse } from 'playwright-forge';
+
+// Strict mode - fail fast
+test('Strict validation - fail on any issue', async ({ request }) => {
+  const response = await request.get('/api/products');
+  
+  const result = await validateResponse({
+    spec: './openapi.yaml',
+    path: '/products',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    failOnMissingSchema: true,  // Fail if schema not found
+    allowBrokenRefs: false,      // Fail on broken $ref
+    warnOnly: false              // Fail on validation errors
+  });
+  
+  expect(result.valid).toBe(true);
+});
+
+// Tolerant mode - for gradual adoption
+test('Tolerant validation - gradual OpenAPI adoption', async ({ request }) => {
+  const response = await request.get('/api/products');
+  
+  const result = await validateResponse({
+    spec: './partial-openapi.yaml',
+    path: '/products',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    failOnMissingSchema: false,      // Don't fail if schema missing
+    fallbackMode: 'warn',             // Warn and skip
+    allowUnknownResponses: true,      // Allow undocumented status codes
+    allowBrokenRefs: true,            // Continue with broken refs
+    warnOnly: true                    // Never fail, just warn
+  });
+  
+  // Always passes, but logs warnings
+  expect(result.valid).toBe(true);
+  
+  if (result.warnings && result.warnings.length > 0) {
+    console.log('Validation warnings:');
+    result.warnings.forEach(w => console.log(`  - ${w}`));
+  }
+});
+```
+
+#### Debug Mode
+
+```typescript
+import { test } from '@playwright/test';
+import { expectApiResponse } from 'playwright-forge';
+
+test('Debug OpenAPI resolution', async ({ request }) => {
+  const response = await request.get('/api/users/123');
+  
+  const result = await expectApiResponse(response).toMatchOpenApiSchema({
+    spec: './openapi.yaml',
+    // Enable detailed logging
+    debugResolution: true,
+    fallbackMode: 'loose',
+    allowBrokenRefs: true
+  });
+  
+  // Console will show:
+  // [OpenApiMatcher] Validating: GET /users/123 (200)
+  // [OpenApiMatcher] Loading spec from file: ...
+  // [OpenApiMatcher] Resolving $ref: #/components/schemas/User
+  // [OpenApiMatcher] Successfully resolved $ref
+  // [OpenApiMatcher] Found path: /users/{id}
+  // [OpenApiMatcher] Found method: get
+  // [OpenApiMatcher] Successfully extracted schema
+});
+```
+
+#### Fallback Modes Comparison
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { validateResponse } from 'playwright-forge';
+
+const incompleteSpec = {
+  openapi: '3.0.0',
+  info: { title: 'Incomplete API', version: '1.0.0' },
+  paths: {} // No paths defined
+};
+
+const responseBody = { id: 123, name: 'Test', extra: 'field' };
+
+test('fallbackMode: none - skip silently', async () => {
+  const result = await validateResponse({
+    spec: incompleteSpec,
+    path: '/users',
+    method: 'get',
+    status: 200,
+    responseBody,
+    fallbackMode: 'none'
+  });
+  
+  expect(result.valid).toBe(true);
+  expect(result.skipped).toBe(true);
+  // No warnings logged
+});
+
+test('fallbackMode: warn - skip with warning', async () => {
+  const result = await validateResponse({
+    spec: incompleteSpec,
+    path: '/users',
+    method: 'get',
+    status: 200,
+    responseBody,
+    fallbackMode: 'warn'
+  });
+  
+  expect(result.valid).toBe(true);
+  expect(result.skipped).toBe(true);
+  expect(result.warnings).toBeDefined();
+  // Warnings logged to console
+});
+
+test('fallbackMode: loose - type-only validation', async () => {
+  const result = await validateResponse({
+    spec: incompleteSpec,
+    path: '/users',
+    method: 'get',
+    status: 200,
+    responseBody,
+    fallbackMode: 'loose'
+  });
+  
+  expect(result.valid).toBe(true);
+  expect(result.fallbackUsed).toBe(true);
+  expect(result.schema).toEqual({
+    type: 'object',
+    additionalProperties: true
+  });
+  // Validates only that response is an object
+});
+```
+
+#### Handling Broken $refs
+
+```typescript
+import { test } from '@playwright/test';
+import { validateResponse } from 'playwright-forge';
+
+const specWithBrokenRefs = {
+  openapi: '3.0.0',
+  info: { title: 'API', version: '1.0.0' },
+  paths: {
+    '/users': {
+      get: {
+        responses: {
+          '200': {
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/UserDoesNotExist'
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  components: {
+    schemas: {
+      // UserDoesNotExist is not defined
+    }
+  }
+};
+
+test('Handle broken $ref gracefully', async ({ request }) => {
+  const response = await request.get('/api/users');
+  
+  const result = await validateResponse({
+    spec: specWithBrokenRefs,
+    path: '/users',
+    method: 'get',
+    status: 200,
+    responseBody: await response.json(),
+    allowBrokenRefs: true,  // Don't throw on broken refs
+    debugResolution: true   // Log what happens
+  });
+  
+  // Uses permissive fallback schema
+  expect(result.valid).toBe(true);
+  
+  // Console shows:
+  // [OpenApiValidator] Failed to resolve $ref: ... - using fallback
+});
+```
+
+#### Warn-Only Mode for CI
+
+```typescript
+import { test } from '@playwright/test';
+import { expectApiResponse } from 'playwright-forge';
+
+test('API validation in CI - never fail', async ({ request }) => {
+  const response = await request.get('/api/users');
+  
+  const result = await expectApiResponse(response).toMatchOpenApiSchema({
+    spec: './evolving-api.yaml',
+    warnOnly: true,  // Never fail the test
+    debugResolution: true
+  });
+  
+  // Test always passes
+  expect(result.valid).toBe(true);
+  
+  // But validation errors are logged as warnings
+  if (result.warnOnlyMode && result.warnings) {
+    console.log('⚠️  OpenAPI validation issues (not blocking):');
+    result.warnings.forEach(w => console.log(`   ${w}`));
+  }
+});
+```
+
+### Configuration Patterns
+
+#### Production Configuration
+
+```typescript
+// config/openapi.ts
+export const productionConfig = {
+  failOnMissingSchema: true,
+  fallbackMode: 'none' as const,
+  allowBrokenRefs: false,
+  allowUnknownResponses: false,
+  warnOnly: false,
+  strict: true
+};
+```
+
+#### Development Configuration
+
+```typescript
+// config/openapi.ts
+export const developmentConfig = {
+  failOnMissingSchema: false,
+  fallbackMode: 'loose' as const,
+  allowBrokenRefs: true,
+  allowUnknownResponses: true,
+  warnOnly: false,
+  debugResolution: true
+};
+```
+
+#### CI Configuration (Gradual Adoption)
+
+```typescript
+// config/openapi.ts
+export const ciConfig = {
+  failOnMissingSchema: false,
+  fallbackMode: 'warn' as const,
+  allowBrokenRefs: true,
+  allowUnknownResponses: true,
+  warnOnly: true,  // Collect data without blocking
+  debugResolution: false
+};
+```
+
+### Usage in Tests
+
+```typescript
+import { test } from '@playwright/test';
+import { expectApiResponse } from 'playwright-forge';
+import { productionConfig, developmentConfig } from './config/openapi';
+
+const config = process.env.NODE_ENV === 'production' 
+  ? productionConfig 
+  : developmentConfig;
+
+test('Validate API response with environment config', async ({ request }) => {
+  const response = await request.get('/api/users');
+  
+  const result = await expectApiResponse(response).toMatchOpenApiSchema({
+    spec: './openapi.yaml',
+    ...config
+  });
+  
+  expect(result.valid).toBe(true);
+});
+```
+

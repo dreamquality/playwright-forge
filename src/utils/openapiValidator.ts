@@ -5,6 +5,11 @@ import * as path from 'path';
 import * as YAML from 'yaml';
 
 /**
+ * Fallback mode when schema cannot be resolved
+ */
+export type FallbackMode = 'none' | 'loose' | 'warn';
+
+/**
  * Options for OpenAPI validation
  */
 export interface OpenApiValidationOptions {
@@ -62,6 +67,46 @@ export interface OpenApiValidationOptions {
    * @default true
    */
   cacheSpec?: boolean;
+
+  /**
+   * Fail test execution if schema cannot be resolved
+   * @default false
+   */
+  failOnMissingSchema?: boolean;
+
+  /**
+   * Fallback behavior when schema cannot be resolved
+   * - 'none': Skip validation entirely
+   * - 'loose': Validate only basic types (no schema enforcement)
+   * - 'warn': Log warning and skip validation
+   * @default 'warn'
+   */
+  fallbackMode?: FallbackMode;
+
+  /**
+   * Allow validation to proceed even if response status is not defined in spec
+   * @default true
+   */
+  allowUnknownResponses?: boolean;
+
+  /**
+   * Allow validation to proceed even if $ref cannot be resolved
+   * @default false
+   */
+  allowBrokenRefs?: boolean;
+
+  /**
+   * Warn only mode - log all errors but mark validation as passed
+   * Useful for gradual OpenAPI spec adoption
+   * @default false
+   */
+  warnOnly?: boolean;
+
+  /**
+   * Enable debug logging for resolution steps
+   * @default false
+   */
+  debugResolution?: boolean;
 }
 
 /**
@@ -70,11 +115,15 @@ export interface OpenApiValidationOptions {
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+  warnings?: string[];
   schema?: object;
   ajvErrors?: ErrorObject[] | null;
   path?: string;
   method?: string;
   status?: number | string;
+  skipped?: boolean;
+  fallbackUsed?: boolean;
+  warnOnlyMode?: boolean;
 }
 
 /**
@@ -103,8 +152,15 @@ export class OpenApiValidator {
    * Loads OpenAPI spec from various sources
    * @param spec - URL, file path, or object
    * @param useCache - Whether to use cached spec
+   * @param allowBrokenRefs - Whether to allow broken $ref
+   * @param debug - Enable debug logging
    */
-  private async loadSpec(spec: string | object, useCache: boolean = true): Promise<any> {
+  private async loadSpec(
+    spec: string | object,
+    useCache: boolean = true,
+    allowBrokenRefs: boolean = false,
+    debug: boolean = false
+  ): Promise<any> {
     // If it's already an object, return it
     if (typeof spec === 'object') {
       return spec;
@@ -113,6 +169,9 @@ export class OpenApiValidator {
     // Check cache
     const cacheKey = spec;
     if (useCache && specCache.has(cacheKey)) {
+      if (debug) {
+        console.log(`[OpenApiValidator] Using cached spec: ${cacheKey}`);
+      }
       return specCache.get(cacheKey);
     }
 
@@ -127,7 +186,18 @@ export class OpenApiValidator {
     }
 
     // Resolve $ref references
-    parsedSpec = this.resolveRefs(parsedSpec);
+    try {
+      parsedSpec = this.resolveRefs(parsedSpec, undefined, allowBrokenRefs, debug);
+    } catch (error: any) {
+      if (allowBrokenRefs) {
+        if (debug) {
+          console.warn(`[OpenApiValidator] Failed to resolve all refs, continuing with partial spec: ${error.message}`);
+        }
+        // Continue with partially resolved spec
+      } else {
+        throw error;
+      }
+    }
 
     // Cache the spec
     if (useCache) {
@@ -184,7 +254,7 @@ export class OpenApiValidator {
    * Resolves $ref references in OpenAPI spec
    * Simple implementation - only handles internal references
    */
-  private resolveRefs(spec: any, root?: any): any {
+  private resolveRefs(spec: any, root?: any, allowBrokenRefs: boolean = false, debug: boolean = false): any {
     if (!root) root = spec;
 
     if (typeof spec !== 'object' || spec === null) {
@@ -192,27 +262,44 @@ export class OpenApiValidator {
     }
 
     if (Array.isArray(spec)) {
-      return spec.map(item => this.resolveRefs(item, root));
+      return spec.map(item => this.resolveRefs(item, root, allowBrokenRefs, debug));
     }
 
     // Handle $ref
     if (spec.$ref && typeof spec.$ref === 'string') {
       const refPath = spec.$ref.replace(/^#\//, '').split('/');
       let resolved = root;
+      
+      if (debug) {
+        console.log(`[OpenApiValidator] Resolving $ref: ${spec.$ref}`);
+      }
+
       for (const part of refPath) {
         resolved = resolved[part];
         if (!resolved) {
+          if (allowBrokenRefs) {
+            if (debug) {
+              console.warn(`[OpenApiValidator] Failed to resolve $ref: ${spec.$ref} - using fallback`);
+            }
+            // Return a permissive schema as fallback
+            return { type: 'object', additionalProperties: true };
+          }
           throw new Error(`Failed to resolve $ref: ${spec.$ref}`);
         }
       }
+      
+      if (debug) {
+        console.log(`[OpenApiValidator] Successfully resolved $ref: ${spec.$ref}`);
+      }
+      
       // Recursively resolve the referenced object
-      return this.resolveRefs(resolved, root);
+      return this.resolveRefs(resolved, root, allowBrokenRefs, debug);
     }
 
     // Recursively process all properties
     const result: any = {};
     for (const key in spec) {
-      result[key] = this.resolveRefs(spec[key], root);
+      result[key] = this.resolveRefs(spec[key], root, allowBrokenRefs, debug);
     }
     return result;
   }
@@ -224,37 +311,119 @@ export class OpenApiValidator {
     spec: any,
     apiPath: string,
     method: string,
-    status: number | string
-  ): object | null {
-    const paths = spec.paths || {};
-    const pathItem = paths[apiPath];
+    status: number | string,
+    options: {
+      allowUnknownResponses?: boolean;
+      debug?: boolean;
+    } = {}
+  ): { schema: object | null; warnings: string[] } {
+    const warnings: string[] = [];
+    const { allowUnknownResponses = true, debug = false } = options;
 
-    if (!pathItem) {
-      throw new Error(`Path not found in OpenAPI spec: ${apiPath}`);
+    if (debug) {
+      console.log(`[OpenApiValidator] Extracting schema for ${method.toUpperCase()} ${apiPath} (${status})`);
     }
 
+    // Check if paths exist
+    const paths = spec.paths || {};
+    if (Object.keys(paths).length === 0) {
+      warnings.push('OpenAPI spec has no paths defined');
+      return { schema: null, warnings };
+    }
+
+    // Check if path exists
+    const pathItem = paths[apiPath];
+    if (!pathItem) {
+      warnings.push(`Path not found in OpenAPI spec: ${apiPath}`);
+      return { schema: null, warnings };
+    }
+
+    if (debug) {
+      console.log(`[OpenApiValidator] Found path: ${apiPath}`);
+    }
+
+    // Check if method exists
     const operation = pathItem[method.toLowerCase()];
     if (!operation) {
-      throw new Error(`Method ${method} not found for path ${apiPath}`);
+      warnings.push(`Method ${method} not found for path ${apiPath}`);
+      return { schema: null, warnings };
     }
 
+    if (debug) {
+      console.log(`[OpenApiValidator] Found method: ${method}`);
+    }
+
+    // Check if responses exist
     const responses = operation.responses || {};
+    if (Object.keys(responses).length === 0) {
+      warnings.push(`No responses defined for ${method} ${apiPath}`);
+      return { schema: null, warnings };
+    }
+
+    // Try to find response for status
     const statusStr = String(status);
     const response = responses[statusStr] || responses['default'];
 
     if (!response) {
-      throw new Error(`Status ${status} not found in responses for ${method} ${apiPath}`);
+      if (allowUnknownResponses) {
+        warnings.push(`Status ${status} not found in responses for ${method} ${apiPath} - available: ${Object.keys(responses).join(', ')}`);
+        return { schema: null, warnings };
+      }
+      warnings.push(`Status ${status} not found and allowUnknownResponses is false`);
+      return { schema: null, warnings };
     }
 
-    // OpenAPI 3.x structure
+    if (debug) {
+      console.log(`[OpenApiValidator] Found response for status: ${statusStr}`);
+    }
+
+    // Check content
     const content = response.content || {};
-    const jsonContent = content['application/json'] || content['*/*'];
-
-    if (!jsonContent || !jsonContent.schema) {
-      throw new Error(`No JSON schema found for ${method} ${apiPath} ${status}`);
+    if (Object.keys(content).length === 0) {
+      warnings.push(`No content defined for response ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
     }
 
-    return jsonContent.schema;
+    // Try to find JSON content
+    const jsonContent = content['application/json'] || content['*/*'] || Object.values(content)[0];
+
+    if (!jsonContent) {
+      warnings.push(`No JSON content found for ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
+    }
+
+    // Check schema
+    if (!jsonContent.schema) {
+      warnings.push(`No schema defined in content for ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
+    }
+
+    if (debug) {
+      console.log(`[OpenApiValidator] Successfully extracted schema`);
+    }
+
+    return { schema: jsonContent.schema, warnings };
+  }
+
+  /**
+   * Creates a loose validation schema that only checks basic types
+   */
+  private createLooseSchema(responseBody: unknown): object {
+    const type = Array.isArray(responseBody) ? 'array' : typeof responseBody;
+    
+    if (type === 'array') {
+      return {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true }
+      };
+    } else if (type === 'object') {
+      return {
+        type: 'object',
+        additionalProperties: true
+      };
+    }
+    
+    return { type };
   }
 
   /**
@@ -270,14 +439,95 @@ export class OpenApiValidator {
       strict = false,
       allowAdditionalProperties = true,
       cacheSpec = true,
+      failOnMissingSchema = false,
+      fallbackMode = 'warn',
+      allowUnknownResponses = true,
+      allowBrokenRefs = false,
+      warnOnly = false,
+      debugResolution = false,
     } = options;
+
+    const warnings: string[] = [];
 
     try {
       // Load and parse the spec
-      const parsedSpec = await this.loadSpec(spec, cacheSpec);
+      const parsedSpec = await this.loadSpec(spec, cacheSpec, allowBrokenRefs, debugResolution);
 
       // Extract the response schema
-      const schema = this.extractResponseSchema(parsedSpec, apiPath, method, status);
+      const { schema, warnings: extractWarnings } = this.extractResponseSchema(
+        parsedSpec,
+        apiPath,
+        method,
+        status,
+        { allowUnknownResponses, debug: debugResolution }
+      );
+
+      warnings.push(...extractWarnings);
+
+      // Handle missing schema
+      if (!schema) {
+        const missingSchemaMsg = `Schema not found for ${method.toUpperCase()} ${apiPath} (${status})`;
+        
+        if (failOnMissingSchema) {
+          return {
+            valid: false,
+            errors: [missingSchemaMsg],
+            warnings,
+            path: apiPath,
+            method,
+            status,
+          };
+        }
+
+        // Apply fallback mode
+        if (fallbackMode === 'none') {
+          if (debugResolution) {
+            console.log(`[OpenApiValidator] Skipping validation (fallbackMode: none)`);
+          }
+          return {
+            valid: true,
+            errors: [],
+            warnings: [...warnings, missingSchemaMsg],
+            path: apiPath,
+            method,
+            status,
+            skipped: true,
+          };
+        } else if (fallbackMode === 'warn') {
+          console.warn(`[OpenApiValidator] ${missingSchemaMsg}`);
+          warnings.forEach(w => console.warn(`[OpenApiValidator] ${w}`));
+          return {
+            valid: true,
+            errors: [],
+            warnings: [...warnings, missingSchemaMsg],
+            path: apiPath,
+            method,
+            status,
+            skipped: true,
+          };
+        } else if (fallbackMode === 'loose') {
+          // Create loose schema that just validates basic type
+          const looseSchema = this.createLooseSchema(responseBody);
+          if (debugResolution) {
+            console.log(`[OpenApiValidator] Using loose fallback schema:`, looseSchema);
+          }
+          warnings.push('Using loose type-only validation as fallback');
+          
+          const validator = this.ajv.compile(looseSchema);
+          const valid = validator(responseBody);
+          
+          return {
+            valid,
+            errors: valid ? [] : ['Basic type validation failed'],
+            warnings: [...warnings, missingSchemaMsg],
+            schema: looseSchema,
+            path: apiPath,
+            method,
+            status,
+            fallbackUsed: true,
+          };
+        }
+      }
 
       // Modify schema based on options
       let finalSchema = { ...schema };
@@ -290,8 +540,6 @@ export class OpenApiValidator {
         // Explicitly allow additional properties (override schema defaults)
         finalSchema = this.setAdditionalProperties(finalSchema, true);
       }
-      // If neither strict nor allowAdditionalProperties is explicitly set,
-      // use the schema as-is (preserves original additionalProperties settings)
 
       // Create validator with custom options
       const validator = this.ajv.compile(finalSchema);
@@ -307,9 +555,27 @@ export class OpenApiValidator {
           return `${path}: ${message}${params}`;
         }) || [];
 
+        // Warn only mode
+        if (warnOnly) {
+          console.warn(`[OpenApiValidator] Validation failed (warnOnly mode):`);
+          errors.forEach(err => console.warn(`  - ${err}`));
+          return {
+            valid: true,
+            errors: [],
+            warnings: [...warnings, ...errors],
+            schema: finalSchema,
+            ajvErrors: validator.errors,
+            path: apiPath,
+            method,
+            status,
+            warnOnlyMode: true,
+          };
+        }
+
         return {
           valid: false,
           errors,
+          warnings,
           schema: finalSchema,
           ajvErrors: validator.errors,
           path: apiPath,
@@ -321,15 +587,32 @@ export class OpenApiValidator {
       return {
         valid: true,
         errors: [],
+        warnings,
         schema: finalSchema,
         path: apiPath,
         method,
         status,
       };
     } catch (error: any) {
+      const errorMsg = error.message || 'Validation error';
+      
+      if (warnOnly) {
+        console.warn(`[OpenApiValidator] ${errorMsg} (warnOnly mode)`);
+        return {
+          valid: true,
+          errors: [],
+          warnings: [...warnings, errorMsg],
+          path: apiPath,
+          method,
+          status,
+          warnOnlyMode: true,
+        };
+      }
+
       return {
         valid: false,
-        errors: [error.message || 'Validation error'],
+        errors: [errorMsg],
+        warnings,
         path: apiPath,
         method,
         status,

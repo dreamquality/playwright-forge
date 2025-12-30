@@ -14,6 +14,11 @@ interface CacheEntry {
 }
 
 /**
+ * Fallback mode when schema cannot be resolved
+ */
+export type FallbackMode = 'none' | 'loose' | 'warn';
+
+/**
  * OpenAPI matcher configuration
  */
 export interface OpenApiMatcherConfig {
@@ -73,6 +78,46 @@ export interface OpenApiMatcherConfig {
    * @default false
    */
   debug?: boolean;
+
+  /**
+   * Fail test execution if schema cannot be resolved
+   * @default false
+   */
+  failOnMissingSchema?: boolean;
+
+  /**
+   * Fallback behavior when schema cannot be resolved
+   * - 'none': Skip validation entirely
+   * - 'loose': Validate only basic types (no schema enforcement)
+   * - 'warn': Log warning and skip validation
+   * @default 'warn'
+   */
+  fallbackMode?: FallbackMode;
+
+  /**
+   * Allow validation to proceed even if response status is not defined in spec
+   * @default true
+   */
+  allowUnknownResponses?: boolean;
+
+  /**
+   * Allow validation to proceed even if $ref cannot be resolved
+   * @default false
+   */
+  allowBrokenRefs?: boolean;
+
+  /**
+   * Warn only mode - log all errors but mark validation as passed
+   * Useful for gradual OpenAPI spec adoption
+   * @default false
+   */
+  warnOnly?: boolean;
+
+  /**
+   * Enable debug logging for resolution steps
+   * @default false
+   */
+  debugResolution?: boolean;
 }
 
 /**
@@ -93,8 +138,12 @@ export interface MatcherValidationResult {
   valid: boolean;
   message: string;
   errors?: ErrorObject[];
+  warnings?: string[];
   schema?: object;
   context?: ValidationContext;
+  skipped?: boolean;
+  fallbackUsed?: boolean;
+  warnOnlyMode?: boolean;
 }
 
 /**
@@ -155,6 +204,12 @@ export class OpenApiMatcher {
       enableCache: config.enableCache ?? true,
       cacheTTL: config.cacheTTL ?? 0,
       debug: config.debug ?? false,
+      failOnMissingSchema: config.failOnMissingSchema ?? false,
+      fallbackMode: config.fallbackMode ?? 'warn',
+      allowUnknownResponses: config.allowUnknownResponses ?? true,
+      allowBrokenRefs: config.allowBrokenRefs ?? false,
+      warnOnly: config.warnOnly ?? false,
+      debugResolution: config.debugResolution ?? false,
       pathResolver: config.pathResolver,
       errorFormatter: config.errorFormatter,
     };
@@ -273,7 +328,18 @@ export class OpenApiMatcher {
     }
 
     // Resolve $ref
-    parsedSpec = this.resolveRefs(parsedSpec);
+    try {
+      parsedSpec = this.resolveRefs(parsedSpec);
+    } catch (error: any) {
+      if (this.config.allowBrokenRefs) {
+        if (this.config.debugResolution) {
+          console.warn(`[OpenApiMatcher] Failed to resolve all refs, continuing with partial spec: ${error.message}`);
+        }
+        // Continue with partially resolved spec
+      } else {
+        throw error;
+      }
+    }
 
     // Cache the spec
     if (this.config.enableCache) {
@@ -355,12 +421,29 @@ export class OpenApiMatcher {
     if (spec.$ref && typeof spec.$ref === 'string') {
       const refPath = spec.$ref.replace(/^#\//, '').split('/');
       let resolved = root;
+      
+      if (this.config.debugResolution) {
+        console.log(`[OpenApiMatcher] Resolving $ref: ${spec.$ref}`);
+      }
+
       for (const part of refPath) {
         resolved = resolved[part];
         if (!resolved) {
+          if (this.config.allowBrokenRefs) {
+            if (this.config.debugResolution) {
+              console.warn(`[OpenApiMatcher] Failed to resolve $ref: ${spec.$ref} - using fallback`);
+            }
+            // Return a permissive schema as fallback
+            return { type: 'object', additionalProperties: true };
+          }
           throw new Error(`Failed to resolve $ref: ${spec.$ref}`);
         }
       }
+      
+      if (this.config.debugResolution) {
+        console.log(`[OpenApiMatcher] Successfully resolved $ref: ${spec.$ref}`);
+      }
+      
       return this.resolveRefs(resolved, root);
     }
 
@@ -380,36 +463,92 @@ export class OpenApiMatcher {
     apiPath: string,
     method: string,
     status: number
-  ): object | null {
-    const paths = spec.paths || {};
-    const pathItem = paths[apiPath];
+  ): { schema: object | null; warnings: string[] } {
+    const warnings: string[] = [];
 
-    if (!pathItem) {
-      throw new Error(`Path not found in OpenAPI spec: ${apiPath}`);
+    if (this.config.debugResolution) {
+      console.log(`[OpenApiMatcher] Extracting schema for ${method.toUpperCase()} ${apiPath} (${status})`);
     }
 
+    // Check if paths exist
+    const paths = spec.paths || {};
+    if (Object.keys(paths).length === 0) {
+      warnings.push('OpenAPI spec has no paths defined');
+      return { schema: null, warnings };
+    }
+
+    // Check if path exists
+    const pathItem = paths[apiPath];
+    if (!pathItem) {
+      warnings.push(`Path not found in OpenAPI spec: ${apiPath}`);
+      return { schema: null, warnings };
+    }
+
+    if (this.config.debugResolution) {
+      console.log(`[OpenApiMatcher] Found path: ${apiPath}`);
+    }
+
+    // Check if method exists
     const operation = pathItem[method.toLowerCase()];
     if (!operation) {
-      throw new Error(`Method ${method} not found for path ${apiPath}`);
+      warnings.push(`Method ${method} not found for path ${apiPath}`);
+      return { schema: null, warnings };
     }
 
+    if (this.config.debugResolution) {
+      console.log(`[OpenApiMatcher] Found method: ${method}`);
+    }
+
+    // Check if responses exist
     const responses = operation.responses || {};
+    if (Object.keys(responses).length === 0) {
+      warnings.push(`No responses defined for ${method} ${apiPath}`);
+      return { schema: null, warnings };
+    }
+
+    // Try to find response for status
     const statusStr = String(status);
     const response = responses[statusStr] || responses['default'];
 
     if (!response) {
-      throw new Error(`Status ${status} not found in responses for ${method} ${apiPath}`);
+      if (this.config.allowUnknownResponses) {
+        warnings.push(`Status ${status} not found in responses for ${method} ${apiPath} - available: ${Object.keys(responses).join(', ')}`);
+        return { schema: null, warnings };
+      }
+      warnings.push(`Status ${status} not found and allowUnknownResponses is false`);
+      return { schema: null, warnings };
     }
 
-    // OpenAPI 3.x structure
+    if (this.config.debugResolution) {
+      console.log(`[OpenApiMatcher] Found response for status: ${statusStr}`);
+    }
+
+    // Check content
     const content = response.content || {};
-    const jsonContent = content['application/json'] || content['*/*'];
-
-    if (!jsonContent || !jsonContent.schema) {
-      throw new Error(`No JSON schema found for ${method} ${apiPath} ${status}`);
+    if (Object.keys(content).length === 0) {
+      warnings.push(`No content defined for response ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
     }
 
-    return jsonContent.schema;
+    // Try to find JSON content
+    const jsonContent = content['application/json'] || content['*/*'] || Object.values(content)[0];
+
+    if (!jsonContent) {
+      warnings.push(`No JSON content found for ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
+    }
+
+    // Check schema
+    if (!jsonContent.schema) {
+      warnings.push(`No schema defined in content for ${method} ${apiPath} ${status}`);
+      return { schema: null, warnings };
+    }
+
+    if (this.config.debugResolution) {
+      console.log(`[OpenApiMatcher] Successfully extracted schema`);
+    }
+
+    return { schema: jsonContent.schema, warnings };
   }
 
   /**
@@ -475,6 +614,27 @@ export class OpenApiMatcher {
   }
 
   /**
+   * Creates a loose validation schema that only checks basic types
+   */
+  private createLooseSchema(responseBody: unknown): object {
+    const type = Array.isArray(responseBody) ? 'array' : typeof responseBody;
+    
+    if (type === 'array') {
+      return {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true }
+      };
+    } else if (type === 'object') {
+      return {
+        type: 'object',
+        additionalProperties: true
+      };
+    }
+    
+    return { type };
+  }
+
+  /**
    * Validate Playwright response against OpenAPI spec
    */
   async validateResponse(
@@ -486,6 +646,8 @@ export class OpenApiMatcher {
       status?: number;
     }
   ): Promise<MatcherValidationResult> {
+    const warnings: string[] = [];
+
     try {
       // Extract metadata from response
       const metadata = this.extractResponseMetadata(response);
@@ -505,9 +667,25 @@ export class OpenApiMatcher {
       // Find matching OpenAPI path
       const matchingPath = this.findMatchingPath(parsedSpec, actualPath);
       if (!matchingPath) {
+        const msg = `No matching path found in OpenAPI spec for: ${actualPath}`;
+        
+        if (this.config.failOnMissingSchema) {
+          return {
+            valid: false,
+            message: msg,
+            warnings,
+          };
+        }
+
+        if (this.config.fallbackMode === 'warn') {
+          console.warn(`[OpenApiMatcher] ${msg}`);
+        }
+
         return {
-          valid: false,
-          message: `No matching path found in OpenAPI spec for: ${actualPath}`,
+          valid: true,
+          message: msg,
+          warnings: [msg],
+          skipped: true,
         };
       }
 
@@ -516,7 +694,81 @@ export class OpenApiMatcher {
       }
 
       // Extract schema
-      const schema = this.extractResponseSchema(parsedSpec, matchingPath, method, status);
+      const { schema, warnings: extractWarnings } = this.extractResponseSchema(
+        parsedSpec,
+        matchingPath,
+        method,
+        status
+      );
+
+      warnings.push(...extractWarnings);
+
+      // Handle missing schema
+      if (!schema) {
+        const missingSchemaMsg = `Schema not found for ${method.toUpperCase()} ${matchingPath} (${status})`;
+        
+        if (this.config.failOnMissingSchema) {
+          return {
+            valid: false,
+            message: missingSchemaMsg,
+            warnings,
+          };
+        }
+
+        // Apply fallback mode
+        if (this.config.fallbackMode === 'none') {
+          if (this.config.debugResolution) {
+            console.log(`[OpenApiMatcher] Skipping validation (fallbackMode: none)`);
+          }
+          return {
+            valid: true,
+            message: `Validation skipped: ${missingSchemaMsg}`,
+            warnings: [...warnings, missingSchemaMsg],
+            skipped: true,
+          };
+        } else if (this.config.fallbackMode === 'warn') {
+          console.warn(`[OpenApiMatcher] ${missingSchemaMsg}`);
+          warnings.forEach(w => console.warn(`[OpenApiMatcher] ${w}`));
+          return {
+            valid: true,
+            message: `Validation skipped with warning: ${missingSchemaMsg}`,
+            warnings: [...warnings, missingSchemaMsg],
+            skipped: true,
+          };
+        } else if (this.config.fallbackMode === 'loose') {
+          // Get response body
+          const responseBody = await response.json();
+          
+          // Create loose schema that just validates basic type
+          const looseSchema = this.createLooseSchema(responseBody);
+          if (this.config.debugResolution) {
+            console.log(`[OpenApiMatcher] Using loose fallback schema:`, looseSchema);
+          }
+          warnings.push('Using loose type-only validation as fallback');
+          
+          const validator = this.ajv.compile(looseSchema);
+          const valid = validator(responseBody);
+          
+          const context: ValidationContext = {
+            method,
+            path: matchingPath,
+            status,
+            schema: looseSchema,
+            responseBody,
+          };
+          
+          return {
+            valid,
+            message: valid 
+              ? `Response matches loose schema (fallback) for ${method.toUpperCase()} ${matchingPath} (${status})`
+              : 'Basic type validation failed',
+            warnings: [...warnings, missingSchemaMsg],
+            schema: looseSchema,
+            context,
+            fallbackUsed: true,
+          };
+        }
+      }
 
       // Modify schema based on config
       let finalSchema = { ...schema };
@@ -542,10 +794,28 @@ export class OpenApiMatcher {
       };
 
       if (!valid && validator.errors) {
+        // Warn only mode
+        if (this.config.warnOnly) {
+          console.warn(`[OpenApiMatcher] Validation failed (warnOnly mode):`);
+          const errorMsg = this.formatErrors(validator.errors, context);
+          console.warn(errorMsg);
+          
+          return {
+            valid: true,
+            message: `Validation passed (warnOnly mode)`,
+            errors: validator.errors,
+            warnings: [...warnings, errorMsg],
+            schema: finalSchema,
+            context,
+            warnOnlyMode: true,
+          };
+        }
+
         return {
           valid: false,
           message: this.formatErrors(validator.errors, context),
           errors: validator.errors,
+          warnings,
           schema: finalSchema,
           context,
         };
@@ -554,13 +824,27 @@ export class OpenApiMatcher {
       return {
         valid: true,
         message: `Response matches OpenAPI schema for ${method.toUpperCase()} ${matchingPath} (${status})`,
+        warnings,
         schema: finalSchema,
         context,
       };
     } catch (error: any) {
+      const errorMsg = error.message || 'Validation error';
+      
+      if (this.config.warnOnly) {
+        console.warn(`[OpenApiMatcher] ${errorMsg} (warnOnly mode)`);
+        return {
+          valid: true,
+          message: `Validation passed (warnOnly mode)`,
+          warnings: [...warnings, errorMsg],
+          warnOnlyMode: true,
+        };
+      }
+
       return {
         valid: false,
-        message: error.message || 'Validation error',
+        message: errorMsg,
+        warnings,
       };
     }
   }
