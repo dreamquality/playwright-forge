@@ -318,6 +318,10 @@ export async function stableFill(
  * - Retries selection if DOM updates
  * - Verifies the selection was successful
  * 
+ * Note: For multi-select elements, verification only checks that the first value
+ * was selected due to Playwright's inputValue() limitation which returns only
+ * the first selected option.
+ * 
  * @param page - Playwright page
  * @param selector - Select element selector
  * @param value - Value(s) to select (string or array for multi-select)
