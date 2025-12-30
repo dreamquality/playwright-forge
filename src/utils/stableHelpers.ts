@@ -164,20 +164,6 @@ async function scrollIntoView(
 }
 
 /**
- * Check if element is covered by another element
- */
-async function isElementCovered(_locator: Locator): Promise<boolean> {
-  try {
-    // Use Playwright's built-in check by attempting to get the element handle
-    // If element is not actionable (covered), this will be reflected in the click attempt
-    // For now, we'll return false and rely on the click itself to fail if covered
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Stable Click - Wait for element to be visible, enabled, and stable before clicking
  * 
  * Features:
@@ -222,14 +208,7 @@ export async function stableClick(
       await waitForStable(locator, resolvedConfig);
       log('Element is stable', resolvedConfig);
 
-      // Check if covered
-      const covered = await isElementCovered(locator);
-      if (covered) {
-        throw new Error('Element is covered by another element');
-      }
-      log('Element is not covered', resolvedConfig);
-
-      // Click
+      // Click - Playwright will automatically fail if element is covered
       await locator.click({ timeout: resolvedConfig.timeout });
       log('Click succeeded', resolvedConfig);
       return;
@@ -381,11 +360,13 @@ export async function stableSelect(
       log('Option(s) selected', resolvedConfig);
 
       // Verify selection
+      // Note: For multi-select, inputValue() returns only the first selected option
+      // We verify that at least the first value was selected
       const selectedValue = await locator.inputValue();
       const expectedValue = Array.isArray(value) ? value[0] : value;
       
       if (selectedValue !== expectedValue) {
-        throw new Error(`Selection verification failed: expected "${expectedValue}", got "${selectedValue}"`);
+        throw new Error(`Selection verification failed: expected first value "${expectedValue}", got "${selectedValue}"`);
       }
       log('Selection verified', resolvedConfig);
 

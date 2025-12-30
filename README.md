@@ -476,7 +476,7 @@ await stableSelect(page, '#dropdown', 'option-1', config);
 - Waits for element to be visible, enabled, and stable
 - Automatically scrolls element into view
 - Retries if element detaches or click fails
-- Verifies element is not covered by other elements
+- Uses Playwright's built-in actionability checks
 
 **Stable Fill:**
 - Waits for input/textarea to be visible and enabled
