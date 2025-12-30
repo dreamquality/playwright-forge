@@ -4,16 +4,18 @@ import * as path from 'path';
 
 export type AuthOptions = {
   storageStatePath?: string;
+  saveState?: boolean;
 };
 
 /**
  * Auth fixture for managing authentication state
  * Supports loading and saving storageState for session persistence
+ * Note: Auth state files are automatically cleaned up after test completion
  */
 export const authFixture = base.extend<{ auth: AuthOptions }>({
   auth: async ({ context }, use) => {
     const storageStatePath = process.env.STORAGE_STATE_PATH || 
-                            path.join(process.cwd(), '.auth', `state-${process.pid}.json`);
+                            path.join(process.cwd(), '.auth', `state-${process.pid}-${Date.now()}.json`);
     
     // Ensure .auth directory exists
     const authDir = path.dirname(storageStatePath);
@@ -23,15 +25,27 @@ export const authFixture = base.extend<{ auth: AuthOptions }>({
 
     const authOptions: AuthOptions = {
       storageStatePath,
+      saveState: false, // Default to not saving unless explicitly enabled
     };
 
     await use(authOptions);
 
-    // Optional: Save state after test if context was modified
+    // Only save state if explicitly requested
+    if (authOptions.saveState) {
+      try {
+        await context.storageState({ path: storageStatePath });
+      } catch (error) {
+        // Context might be closed, ignore
+      }
+    }
+
+    // Cleanup: Remove the auth state file after test
     try {
-      await context.storageState({ path: storageStatePath });
+      if (fs.existsSync(storageStatePath)) {
+        fs.unlinkSync(storageStatePath);
+      }
     } catch (error) {
-      // Context might be closed, ignore
+      // File might not exist or already deleted, ignore
     }
   },
 });

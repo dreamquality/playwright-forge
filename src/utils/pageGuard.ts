@@ -72,30 +72,44 @@ export class PageGuard {
    * Wait for element to be stable (not animating)
    * @param selector - Element selector
    * @param timeout - Optional timeout
+   * @param stabilityThreshold - Number of consecutive checks with same position (default: 3)
    */
-  async waitForStable(selector: string, timeout?: number): Promise<void> {
+  async waitForStable(
+    selector: string, 
+    timeout?: number, 
+    stabilityThreshold: number = 3
+  ): Promise<void> {
     const locator = this.page.locator(selector);
     await locator.waitFor({ state: 'visible', timeout });
     
-    // Wait for element position to stabilize
-    let previousBox = await locator.boundingBox();
-    await this.page.waitForTimeout(50);
-    let currentBox = await locator.boundingBox();
-    
     const startTime = Date.now();
     const maxTimeout = timeout || 5000;
+    const checkInterval = 50;
+    let stableCount = 0;
+    let previousBox = await locator.boundingBox();
     
-    while (
-      previousBox?.x !== currentBox?.x || 
-      previousBox?.y !== currentBox?.y
-    ) {
+    while (stableCount < stabilityThreshold) {
       if (Date.now() - startTime > maxTimeout) {
         throw new Error(`Element ${selector} did not stabilize within timeout`);
       }
       
+      // Use a promise-based delay instead of waitForTimeout
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      
+      const currentBox = await locator.boundingBox();
+      
+      if (
+        previousBox?.x === currentBox?.x && 
+        previousBox?.y === currentBox?.y &&
+        previousBox?.width === currentBox?.width &&
+        previousBox?.height === currentBox?.height
+      ) {
+        stableCount++;
+      } else {
+        stableCount = 0;
+      }
+      
       previousBox = currentBox;
-      await this.page.waitForTimeout(50);
-      currentBox = await locator.boundingBox();
     }
   }
 }
