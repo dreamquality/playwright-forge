@@ -432,6 +432,94 @@ await guard.click('#dashboard-link');
 await guard.waitForUrl(/\/dashboard/);
 ```
 
+### Stable Action Helpers
+Framework-agnostic utilities for reliable Playwright actions with automatic retries, waits, and element stability checks.
+
+**Features:**
+- Automatic wait for element visibility, enabled state, and stability
+- Built-in retry logic for transient failures
+- Element stability detection (not animating)
+- Configurable timeouts, retry intervals, and scroll behavior
+- Strict or tolerant error handling modes
+- Debug logging for troubleshooting
+
+```typescript
+import { stableClick, stableFill, stableSelect, type StableActionConfig } from 'playwright-forge';
+
+// Basic usage - click with automatic retries
+await stableClick(page, '#submit-button');
+
+// Fill input with value verification
+await stableFill(page, '#email', 'user@example.com');
+
+// Select option with retry on DOM updates
+await stableSelect(page, '#country', 'US');
+
+// Advanced configuration
+const config: StableActionConfig = {
+  timeout: 10000,              // Timeout in ms (default: 30000)
+  retryInterval: 100,          // Retry interval in ms (default: 100)
+  maxRetries: 5,               // Maximum retries (default: 3)
+  scrollBehavior: 'center',    // Scroll behavior: 'auto' | 'center' | 'nearest'
+  debug: true,                 // Enable debug logging (default: false)
+  mode: 'strict',              // 'strict' throws errors, 'tolerant' logs warnings
+  stabilityThreshold: 3,       // Consecutive stable checks required (default: 3)
+  stabilityCheckInterval: 100  // Interval between stability checks (default: 100)
+};
+
+await stableClick(page, '#dynamic-button', config);
+await stableFill(page, '#search', 'query', config);
+await stableSelect(page, '#dropdown', 'option-1', config);
+```
+
+**Stable Click:**
+- Waits for element to be visible, enabled, and stable
+- Automatically scrolls element into view
+- Retries if element detaches or click fails
+- Verifies element is not covered by other elements
+
+**Stable Fill:**
+- Waits for input/textarea to be visible and enabled
+- Clears existing value safely
+- Retries until value is properly set
+- Verifies the value was set correctly
+
+**Stable Select:**
+- Waits for select element and options to be loaded
+- Handles dynamic option loading
+- Retries selection if DOM updates
+- Verifies selection was successful
+
+**Example: Form interaction with retries**
+```typescript
+// Configure for flaky environments
+const config = { 
+  maxRetries: 5, 
+  timeout: 10000, 
+  debug: true 
+};
+
+// Fill form with automatic retries
+await stableFill(page, '#username', 'john.doe', config);
+await stableFill(page, '#password', 'secret123', config);
+await stableSelect(page, '#role', 'admin', config);
+await stableClick(page, '#submit', config);
+```
+
+**Example: Chaining with Page Guards**
+```typescript
+import { createPageGuard, stableClick, stableFill } from 'playwright-forge';
+
+const guard = createPageGuard(page, { debug: true });
+await guard.waitForReady();
+
+// Use stable helpers for critical actions
+await stableFill(page, '#search-input', 'playwright');
+await stableClick(page, '#search-button');
+
+await guard.waitForUrl(/\/search\?q=/);
+```
+
 ### File Assertions
 Assert file existence, content, and properties.
 

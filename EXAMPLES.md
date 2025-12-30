@@ -1821,3 +1821,212 @@ const exporter = new CIAnnotationsExporter({ ciProvider: 'github' });
 // Disable auto-detection
 const exporter = new CIAnnotationsExporter({ ciProvider: 'none' });
 ```
+
+## Stable Action Helpers
+
+Stable action helpers provide reliable wrappers around Playwright actions with automatic retries, waits, and element stability checks.
+
+### Basic Usage
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick, stableFill, stableSelect } from 'playwright-forge';
+
+test('Reliable form interaction', async ({ page }) => {
+  await page.goto('/registration');
+  
+  // Fill form fields with automatic retries
+  await stableFill(page, '#firstName', 'John');
+  await stableFill(page, '#lastName', 'Doe');
+  await stableFill(page, '#email', 'john.doe@example.com');
+  
+  // Select from dropdown with retry on DOM updates
+  await stableSelect(page, '#country', 'US');
+  
+  // Click with stability checks
+  await stableClick(page, '#submit-button');
+});
+```
+
+### Handling Dynamic Content
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick, stableFill } from 'playwright-forge';
+
+test('Interact with dynamic elements', async ({ page }) => {
+  await page.goto('/dashboard');
+  
+  // Wait for element that appears after JS initialization
+  await stableClick(page, '#dynamic-menu-button', {
+    timeout: 10000,
+    maxRetries: 5
+  });
+  
+  // Fill input that becomes enabled after validation
+  await stableFill(page, '#async-input', 'value', {
+    timeout: 5000,
+    maxRetries: 3,
+    retryInterval: 200
+  });
+});
+```
+
+### Advanced Configuration
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick, stableFill, stableSelect, type StableActionConfig } from 'playwright-forge';
+
+test('Form with full configuration', async ({ page }) => {
+  await page.goto('/complex-form');
+  
+  const config: StableActionConfig = {
+    timeout: 10000,              // Wait up to 10s for element
+    retryInterval: 100,          // Check every 100ms
+    maxRetries: 5,               // Retry up to 5 times
+    scrollBehavior: 'center',    // Scroll element to center
+    debug: true,                 // Enable debug logging
+    mode: 'strict',              // Throw on errors
+    stabilityThreshold: 3,       // 3 consecutive stable checks
+    stabilityCheckInterval: 100  // Check stability every 100ms
+  };
+  
+  // Use same config for all actions
+  await stableFill(page, '#username', 'john.doe', config);
+  await stableFill(page, '#email', 'john@example.com', config);
+  await stableSelect(page, '#role', 'admin', config);
+  await stableClick(page, '#save-button', config);
+});
+```
+
+### Tolerant Mode for Non-Critical Actions
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick } from 'playwright-forge';
+
+test('Handle optional elements gracefully', async ({ page }) => {
+  await page.goto('/welcome');
+  
+  // Try to close optional modal, but don't fail if it doesn't exist
+  try {
+    await stableClick(page, '#close-modal', {
+      mode: 'tolerant',
+      timeout: 2000,
+      maxRetries: 1
+    });
+  } catch (error) {
+    // Modal didn't exist, continue
+  }
+  
+  // Continue with main flow
+  await stableClick(page, '#continue-button');
+});
+```
+
+### Handling Animations
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick } from 'playwright-forge';
+
+test('Click animated element', async ({ page }) => {
+  await page.goto('/animated-ui');
+  
+  // Wait for slide-in animation to complete
+  await stableClick(page, '#animated-button', {
+    stabilityThreshold: 5,      // Wait for 5 stable checks
+    stabilityCheckInterval: 50, // Check every 50ms
+    timeout: 5000
+  });
+});
+```
+
+### Multi-Select Dropdown
+
+```typescript
+import { test } from '@playwright/test';
+import { stableSelect } from 'playwright-forge';
+
+test('Select multiple options', async ({ page }) => {
+  await page.goto('/preferences');
+  
+  // Select multiple values
+  await stableSelect(page, '#languages', ['en', 'es', 'fr'], {
+    timeout: 5000,
+    maxRetries: 3
+  });
+});
+```
+
+### Integration with Page Guard
+
+```typescript
+import { test } from '@playwright/test';
+import { createPageGuard, stableClick, stableFill } from 'playwright-forge';
+
+test('Combined page guard and stable actions', async ({ page }) => {
+  const guard = createPageGuard(page, {
+    debug: true,
+    waitForNetworkIdle: true,
+    mandatorySelectors: ['#app']
+  });
+  
+  await page.goto('/app');
+  await guard.waitForReady();
+  
+  // Use stable helpers for critical interactions
+  await stableFill(page, '#search', 'playwright', { debug: true });
+  await stableClick(page, '#search-button', { debug: true });
+  
+  await guard.waitForUrl(/\/results/);
+});
+```
+
+### Debugging Failed Actions
+
+```typescript
+import { test } from '@playwright/test';
+import { stableClick } from 'playwright-forge';
+
+test('Debug flaky element', async ({ page }) => {
+  await page.goto('/flaky-page');
+  
+  // Enable debug logging to troubleshoot
+  await stableClick(page, '#flaky-button', {
+    debug: true,           // See detailed logs
+    maxRetries: 5,         // More retries to observe behavior
+    retryInterval: 500,    // Longer intervals for debugging
+    timeout: 10000
+  });
+});
+```
+
+### Error Handling Patterns
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { stableClick, stableFill } from 'playwright-forge';
+
+test('Handle expected failures', async ({ page }) => {
+  await page.goto('/form');
+  
+  try {
+    // Try to interact with element that might not exist
+    await stableClick(page, '#optional-button', {
+      timeout: 2000,
+      maxRetries: 2
+    });
+  } catch (error) {
+    // Element doesn't exist, that's okay
+    console.log('Optional element not found, continuing...');
+  }
+  
+  // Required action - let it throw if fails
+  await stableFill(page, '#required-field', 'value', {
+    timeout: 5000,
+    maxRetries: 3
+  });
+});
+```
