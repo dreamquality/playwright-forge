@@ -315,15 +315,72 @@ soft.verify();
 ```
 
 ### Page Guard
-Verify and wait for page states before interactions.
+Comprehensive page and component readiness checks with configurable behavior, reducing flaky tests.
+
+**Features:**
+- Wait for page readiness (document.readyState, network idle, mandatory elements)
+- Wait for component readiness with custom conditions
+- Automatic retry for failed actions (click, fill, select)
+- Strict or tolerant mode (throw errors vs. log warnings)
+- Debug logging for troubleshooting
 
 ```typescript
-import { createPageGuard } from 'playwright-forge';
+import { createPageGuard, type PageGuardConfig } from 'playwright-forge';
 
+// Basic usage with defaults
 const guard = createPageGuard(page);
-
-// Wait for page to be ready
 await guard.waitForReady();
+
+// Advanced configuration
+const config: PageGuardConfig = {
+  timeout: 10000,              // Timeout in ms (default: 30000)
+  interval: 100,               // Polling interval in ms (default: 100)
+  mode: 'strict',              // 'strict' throws errors, 'tolerant' logs warnings
+  debug: true,                 // Enable debug logging
+  waitForNetworkIdle: true,    // Wait for network idle (default: false)
+  retryCount: 3,               // Retry count for actions (default: 3)
+  retryInterval: 1000,         // Retry interval in ms (default: 1000)
+  mandatorySelectors: [        // Required elements
+    '#header',
+    '#main-content'
+  ],
+  ignoredSelectors: ['#ad']    // Elements to skip
+};
+
+const guard = createPageGuard(page, config);
+
+// Wait for page to be fully ready
+await guard.waitForReady();
+
+// Wait for component with custom conditions
+await guard.waitForComponent([
+  { selector: '#modal', state: 'visible' },
+  { selector: '.spinner', state: 'hidden' },
+  { 
+    selector: '#status', 
+    state: 'visible',
+    attribute: 'data-loaded', 
+    attributeValue: 'true' 
+  },
+  {
+    selector: '#indicator',
+    state: 'visible',
+    attribute: 'data-status',
+    attributeValue: /ready|complete/  // Supports regex
+  }
+]);
+
+// Actions with automatic retry
+await guard.click('#submit-button');
+await guard.fill('#username', 'user@example.com');
+await guard.selectOption('#country', 'US');
+
+// Retry custom actions
+const data = await guard.retryAction(async () => {
+  const response = await page.request.get('/api/data');
+  if (!response.ok()) throw new Error('API call failed');
+  return response.json();
+}, 'fetch data');
 
 // Wait for URL pattern
 await guard.waitForUrl(/dashboard/);
@@ -340,6 +397,39 @@ await guard.verify({
   urlPattern: /dashboard/,
   titlePattern: /Admin Dashboard/
 });
+
+// Tolerant mode - collect warnings instead of failing
+const tolerantGuard = createPageGuard(page, { mode: 'tolerant' });
+await tolerantGuard.waitForReady();
+const warnings = tolerantGuard.getWarnings();
+if (warnings.length > 0) {
+  console.log('Warnings:', warnings);
+}
+tolerantGuard.clearWarnings();
+```
+
+**Example: Real-world SPA scenario**
+```typescript
+const guard = createPageGuard(page, {
+  debug: true,
+  waitForNetworkIdle: true,
+  mandatorySelectors: ['#app', '#navigation'],
+  retryCount: 3
+});
+
+// Navigate and wait for SPA to initialize
+await page.goto('https://app.example.com');
+await guard.waitForReady();
+
+// Wait for framework initialization
+await guard.waitForComponent([
+  { selector: '#app', attribute: 'data-initialized', attributeValue: 'true' },
+  { selector: '.loading-overlay', state: 'hidden' }
+]);
+
+// Safe to interact
+await guard.click('#dashboard-link');
+await guard.waitForUrl(/\/dashboard/);
 ```
 
 ### File Assertions

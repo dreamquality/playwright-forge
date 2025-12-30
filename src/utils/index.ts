@@ -4,7 +4,14 @@ export { waitForDownload, getDownload, type DownloadOptions } from './downloadHe
 export { poll, pollUntilValue, type PollOptions } from './polling';
 export { DataFactory, faker } from './dataFactory';
 export { SoftAssertions, softAssertions } from './softAssertions';
-export { PageGuard, createPageGuard, type PageGuardOptions } from './pageGuard';
+export { 
+  PageGuard, 
+  createPageGuard, 
+  type PageGuardOptions,
+  type PageGuardConfig,
+  type PageGuardMode,
+  type ElementCondition
+} from './pageGuard';
 export { FileAssertions, FileAssertionsAsync } from './fileAssertions';
 export { 
   OpenApiValidator, 
