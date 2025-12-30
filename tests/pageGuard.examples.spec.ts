@@ -6,9 +6,12 @@ import { createPageGuard, type PageGuardConfig, type ElementCondition } from '..
  * 
  * This example demonstrates how to use the Page Guard utility
  * to ensure pages and components are fully ready before interactions.
+ * 
+ * NOTE: These are example tests for documentation purposes.
+ * They require network access to external sites and should be skipped in CI.
  */
 
-test.describe('Page Guard Examples', () => {
+test.describe.skip('Page Guard Examples', () => {
   
   test('Example 1: Basic page readiness with default config', async ({ page }) => {
     // Create a page guard with default configuration
