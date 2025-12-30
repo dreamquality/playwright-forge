@@ -12,7 +12,7 @@ export type CleanupOptions = {
  * Parallel-safe with per-test isolation
  */
 export const cleanupFixture = base.extend<{ cleanup: CleanupOptions }>({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-empty-pattern
+  // eslint-disable-next-line no-empty-pattern
   cleanup: async ({}, use) => {
     const tasks: CleanupTask[] = [];
 
