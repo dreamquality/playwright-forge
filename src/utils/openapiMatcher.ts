@@ -127,17 +127,6 @@ export interface OpenApiMatcherConfig {
 }
 
 /**
- * Validation context for error formatting
- */
-export interface ValidationContext {
-  method: string;
-  path: string;
-  status: number;
-  schema?: object;
-  responseBody: unknown;
-}
-
-/**
  * Validation result for matcher
  */
 export interface MatcherValidationResult {
@@ -227,6 +216,7 @@ export class OpenApiMatcher {
       allowBrokenRefs: config.allowBrokenRefs ?? false,
       warnOnly: config.warnOnly ?? false,
       debugResolution: config.debugResolution ?? false,
+      errorFormatterConfig: config.errorFormatterConfig ?? {},
       pathResolver: config.pathResolver,
       errorFormatter: config.errorFormatter,
     };
@@ -623,7 +613,7 @@ export class OpenApiMatcher {
     
     const formatterContext = {
       method: context.method,
-      resolvedPath: context.path,
+      resolvedPath: context.resolvedPath,
       actualUrl: url,
       status: context.status,
       validationMode: this.config.strict ? 'strict' as const : this.config.allowAdditionalProperties ? 'tolerant' as const : 'hybrid' as const,
@@ -771,10 +761,9 @@ export class OpenApiMatcher {
           
           const context: ValidationContext = {
             method,
-            path: matchingPath,
+            resolvedPath: matchingPath,
             status,
             schema: looseSchema,
-            responseBody,
           };
           
           return {
@@ -807,10 +796,9 @@ export class OpenApiMatcher {
 
       const context: ValidationContext = {
         method,
-        path: matchingPath,
+        resolvedPath: matchingPath,
         status,
         schema: finalSchema,
-        responseBody,
       };
 
       if (!valid && validator.errors) {

@@ -17,12 +17,12 @@ export {
   OpenApiMatcher,
   expectApiResponse,
   type OpenApiMatcherConfig,
-  type MatcherValidationResult,
-  type ValidationContext
+  type MatcherValidationResult
 } from './openapiMatcher';
 export {
   OpenApiErrorFormatter,
   createErrorFormatter,
   type ErrorFormatterConfig,
-  type FormattedError
+  type FormattedError,
+  type ValidationContext
 } from './openapiErrorFormatter';

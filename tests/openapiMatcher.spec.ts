@@ -215,7 +215,7 @@ test.describe('OpenAPI Matcher', () => {
     });
 
     expect(result.valid).toBe(false);
-    expect(result.message).toContain('validation failed');
+    expect(result.message).toContain('OpenAPI Validation Failed');
   });
 
   test('matcher handles array responses', async () => {
@@ -429,7 +429,7 @@ test.describe('OpenAPI Matcher', () => {
     expect(result).toHaveProperty('message');
     if (result.context) {
       expect(result.context).toHaveProperty('method');
-      expect(result.context).toHaveProperty('path');
+      expect(result.context).toHaveProperty('resolvedPath');
       expect(result.context).toHaveProperty('status');
       expect(result.context).toHaveProperty('schema');
     }
