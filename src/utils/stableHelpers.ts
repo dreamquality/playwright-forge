@@ -20,7 +20,11 @@ export interface StableActionConfig {
   retryInterval?: number;
   /** Maximum number of retries (default: 3) */
   maxRetries?: number;
-  /** Scroll behavior when element is not in viewport (default: 'auto') */
+  /** 
+   * Scroll behavior when element is not in viewport (default: 'auto')
+   * Note: Currently reserved for future use. Playwright's scrollIntoViewIfNeeded
+   * automatically handles scrolling without explicit behavior configuration.
+   */
   scrollBehavior?: ScrollBehavior;
   /** Enable debug logging (default: false) */
   debug?: boolean;
@@ -133,11 +137,12 @@ async function waitForStable(
 
     const currentBox = await locator.boundingBox().catch(() => null);
 
-    if (
-      previousBox?.x === currentBox?.x &&
-      previousBox?.y === currentBox?.y &&
-      previousBox?.width === currentBox?.width &&
-      previousBox?.height === currentBox?.height
+    // Both boxes must exist to be considered stable
+    if (previousBox && currentBox &&
+      previousBox.x === currentBox.x &&
+      previousBox.y === currentBox.y &&
+      previousBox.width === currentBox.width &&
+      previousBox.height === currentBox.height
     ) {
       stableCount++;
     } else {
