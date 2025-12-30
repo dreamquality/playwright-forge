@@ -230,10 +230,10 @@ test.describe('OpenAPI Resilient Validation', () => {
       status: 200,
       responseBody: { id: 1, name: 'Test' },
       allowBrokenRefs: true,
-      warnOnly: true  // Add warnOnly since AJV may still catch ref issues
+      warnOnly: true  // Add warnOnly to handle AJV ref resolution errors
     });
 
-    // With allowBrokenRefs and warnOnly, should not fail the test
+    // With allowBrokenRefs and warnOnly, validation passes with warnings
     expect(result.valid).toBe(true);
     expect(result.warnOnlyMode || result.warnings).toBeDefined();
   });

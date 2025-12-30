@@ -147,6 +147,15 @@ export interface MatcherValidationResult {
 }
 
 /**
+ * Default fallback schema for broken or missing schemas
+ * Allows any object structure
+ */
+const DEFAULT_FALLBACK_SCHEMA = {
+  type: 'object' as const,
+  additionalProperties: true
+};
+
+/**
  * Per-worker in-memory cache for OpenAPI specs
  */
 class SpecCache {
@@ -434,7 +443,7 @@ export class OpenApiMatcher {
               console.warn(`[OpenApiMatcher] Failed to resolve $ref: ${spec.$ref} - using fallback`);
             }
             // Return a permissive schema as fallback
-            return { type: 'object', additionalProperties: true };
+            return DEFAULT_FALLBACK_SCHEMA;
           }
           throw new Error(`Failed to resolve $ref: ${spec.$ref}`);
         }
@@ -531,7 +540,10 @@ export class OpenApiMatcher {
     }
 
     // Try to find JSON content
-    const jsonContent = content['application/json'] || content['*/*'] || Object.values(content)[0];
+    // Prefer application/json, fallback to wildcard, or use first available
+    const jsonContent = content['application/json'] || 
+                        content['*/*'] || 
+                        (Object.keys(content).length > 0 ? Object.values(content)[0] : null);
 
     if (!jsonContent) {
       warnings.push(`No JSON content found for ${method} ${apiPath} ${status}`);
