@@ -110,7 +110,7 @@ async function waitForEnabled(
     await new Promise(resolve => setTimeout(resolve, config.retryInterval));
   }
   
-  const error = 'Element is disabled';
+  const error = `Element is disabled for locator: ${locator.toString()}`;
   handleError(error, config);
   throw new Error(error);
 }
