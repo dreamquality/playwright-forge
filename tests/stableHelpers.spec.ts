@@ -132,15 +132,16 @@ test.describe('Stable Helpers Tests', () => {
         </html>
       `);
       
-      // In tolerant mode, it should still throw after retries but log warnings
-      await expect(
-        stableClick(page, '#btn', { 
-          maxRetries: 1, 
-          timeout: 500,
-          mode: 'tolerant',
-          debug: true
-        })
-      ).rejects.toThrow();
+      // In tolerant mode, it should log warnings but NOT throw
+      await stableClick(page, '#btn', { 
+        maxRetries: 1, 
+        timeout: 500,
+        mode: 'tolerant',
+        debug: true
+      });
+      
+      // If we reach here, tolerant mode worked correctly (didn't throw)
+      expect(true).toBe(true);
     });
 
     test('should work with debug logging', async ({ page }) => {

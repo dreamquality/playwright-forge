@@ -1909,18 +1909,14 @@ import { stableClick } from 'playwright-forge';
 test('Handle optional elements gracefully', async ({ page }) => {
   await page.goto('/welcome');
   
-  // Try to close optional modal, but don't fail if it doesn't exist
-  try {
-    await stableClick(page, '#close-modal', {
-      mode: 'tolerant',
-      timeout: 2000,
-      maxRetries: 1
-    });
-  } catch (error) {
-    // Modal didn't exist, continue
-  }
+  // Try to close optional modal - tolerant mode logs warnings but doesn't throw
+  await stableClick(page, '#close-modal', {
+    mode: 'tolerant',
+    timeout: 2000,
+    maxRetries: 1
+  });
   
-  // Continue with main flow
+  // Continue with main flow regardless of whether modal existed
   await stableClick(page, '#continue-button');
 });
 ```

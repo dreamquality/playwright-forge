@@ -460,9 +460,9 @@ const baseConfig: StableActionConfig = {
   timeout: 10000,              // Timeout in ms (default: 30000)
   retryInterval: 100,          // Retry interval in ms (default: 100)
   maxRetries: 5,               // Maximum retries (default: 3)
-  scrollBehavior: 'center',    // Scroll behavior: 'auto' | 'center' | 'nearest'
+  scrollBehavior: 'center',    // Scroll behavior: 'auto' | 'center' | 'nearest' (reserved for future use)
   debug: true,                 // Enable debug logging (default: false)
-  mode: 'strict',              // 'strict' throws errors, 'tolerant' logs warnings
+  mode: 'strict',              // 'strict' throws errors immediately, 'tolerant' logs warnings and returns without throwing
 };
 
 // Click-specific configuration (stability options apply only to stableClick)
@@ -493,7 +493,7 @@ await stableSelect(page, '#dropdown', 'option-1', baseConfig);
 - Waits for select element and options to be loaded
 - Handles dynamic option loading
 - Retries selection if DOM updates
-- Verifies selection was successful
+- Verifies selection was successful (all values for multi-select)
 
 **Example: Form interaction with retries**
 ```typescript
