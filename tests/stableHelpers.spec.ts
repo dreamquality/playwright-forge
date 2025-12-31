@@ -607,4 +607,272 @@ test.describe('Stable Helpers Tests', () => {
       expect(value).toBe('Full Config Test');
     });
   });
+
+  test.describe('Stability Detection', () => {
+    
+    test('should wait for animated element to stabilize before clicking', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <head>
+            <style>
+              @keyframes slideIn {
+                from { transform: translateX(-100px); }
+                to { transform: translateX(0); }
+              }
+              .animated {
+                animation: slideIn 1s ease-out;
+              }
+            </style>
+          </head>
+          <body>
+            <button id="btn" class="animated">Click Me</button>
+            <div id="result"></div>
+            <script>
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', {
+        stabilityThreshold: 3,
+        stabilityCheckInterval: 100,
+        timeout: 5000
+      });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+
+    test('should detect element movement and wait for stability', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <body>
+            <button id="btn" style="position: absolute; top: 0; left: 0;">Click Me</button>
+            <div id="result"></div>
+            <script>
+              let position = 0;
+              const interval = setInterval(() => {
+                position += 10;
+                const btn = document.getElementById('btn');
+                btn.style.left = position + 'px';
+                if (position >= 100) {
+                  clearInterval(interval);
+                }
+              }, 50);
+              
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', {
+        stabilityThreshold: 5,
+        stabilityCheckInterval: 100,
+        timeout: 5000
+      });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+
+    test('should handle fading elements with transitions', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <head>
+            <style>
+              .fade-in {
+                opacity: 0;
+                transition: opacity 0.5s ease-in;
+              }
+              .visible {
+                opacity: 1;
+              }
+            </style>
+          </head>
+          <body>
+            <button id="btn" class="fade-in">Click Me</button>
+            <div id="result"></div>
+            <script>
+              setTimeout(() => {
+                document.getElementById('btn').classList.add('visible');
+              }, 100);
+              
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', {
+        timeout: 3000,
+        stabilityThreshold: 3
+      });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+
+    test('should fail fast when element is never rendered', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <body>
+            <div id="container"></div>
+          </body>
+        </html>
+      `);
+      
+      await expect(
+        stableClick(page, '#nonexistent', {
+          timeout: 2000,
+          stabilityCheckInterval: 100
+        })
+      ).rejects.toThrow(/not found or not rendered/);
+    });
+
+    test('should handle elements that appear and disappear', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <body>
+            <button id="btn" style="display: none;">Click Me</button>
+            <div id="result"></div>
+            <script>
+              let visible = false;
+              setInterval(() => {
+                const btn = document.getElementById('btn');
+                visible = !visible;
+                btn.style.display = visible ? 'block' : 'none';
+              }, 200);
+              
+              setTimeout(() => {
+                clearInterval;
+                document.getElementById('btn').style.display = 'block';
+              }, 1000);
+              
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', {
+        timeout: 3000,
+        maxRetries: 5,
+        retryInterval: 200
+      });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+  });
+
+  test.describe('Configuration Validation', () => {
+    
+    test('should reject negative timeout', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { timeout: -1 })
+      ).rejects.toThrow('timeout must be greater than 0');
+    });
+
+    test('should reject zero timeout', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { timeout: 0 })
+      ).rejects.toThrow('timeout must be greater than 0');
+    });
+
+    test('should reject negative retryInterval', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { retryInterval: -1 })
+      ).rejects.toThrow('retryInterval must be non-negative');
+    });
+
+    test('should reject zero maxRetries', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { maxRetries: 0 })
+      ).rejects.toThrow('maxRetries must be at least 1');
+    });
+
+    test('should reject negative maxRetries', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { maxRetries: -1 })
+      ).rejects.toThrow('maxRetries must be at least 1');
+    });
+
+    test('should reject zero stabilityThreshold', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { stabilityThreshold: 0 })
+      ).rejects.toThrow('stabilityThreshold must be at least 1');
+    });
+
+    test('should reject negative stabilityCheckInterval', async ({ page }) => {
+      await page.setContent('<html><body><button id="btn">Click</button></body></html>');
+      
+      await expect(
+        stableClick(page, '#btn', { stabilityCheckInterval: -1 })
+      ).rejects.toThrow('stabilityCheckInterval must be non-negative');
+    });
+
+    test('should accept zero retryInterval', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <body>
+            <button id="btn">Click Me</button>
+            <div id="result"></div>
+            <script>
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', { retryInterval: 0 });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+
+    test('should accept zero stabilityCheckInterval', async ({ page }) => {
+      await page.setContent(`
+        <html>
+          <body>
+            <button id="btn">Click Me</button>
+            <div id="result"></div>
+            <script>
+              document.getElementById('btn').addEventListener('click', () => {
+                document.getElementById('result').textContent = 'Clicked!';
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      
+      await stableClick(page, '#btn', { stabilityCheckInterval: 0, stabilityThreshold: 1 });
+      
+      const result = await page.locator('#result').textContent();
+      expect(result).toBe('Clicked!');
+    });
+  });
 });
