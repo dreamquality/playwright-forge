@@ -128,7 +128,7 @@ async function waitForStable(
 
   while (stableCount < config.stabilityThreshold) {
     if (Date.now() - startTime > config.timeout) {
-      const error = 'Element did not stabilize within timeout';
+      const error = `Element did not stabilize within timeout: ${locator.toString()}`;
       handleError(error, config);
       throw new Error(error);
     }
