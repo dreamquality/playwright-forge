@@ -456,20 +456,25 @@ await stableFill(page, '#email', 'user@example.com');
 await stableSelect(page, '#country', 'US');
 
 // Advanced configuration
-const config: StableActionConfig = {
+const baseConfig: StableActionConfig = {
   timeout: 10000,              // Timeout in ms (default: 30000)
   retryInterval: 100,          // Retry interval in ms (default: 100)
   maxRetries: 5,               // Maximum retries (default: 3)
   scrollBehavior: 'center',    // Scroll behavior: 'auto' | 'center' | 'nearest'
   debug: true,                 // Enable debug logging (default: false)
   mode: 'strict',              // 'strict' throws errors, 'tolerant' logs warnings
-  stabilityThreshold: 3,       // Consecutive stable checks required (default: 3)
-  stabilityCheckInterval: 100  // Interval between stability checks (default: 100)
 };
 
-await stableClick(page, '#dynamic-button', config);
-await stableFill(page, '#search', 'query', config);
-await stableSelect(page, '#dropdown', 'option-1', config);
+// Click-specific configuration (stability options apply only to stableClick)
+const clickConfig: StableActionConfig = {
+  ...baseConfig,
+  stabilityThreshold: 3,        // Consecutive stable checks required (default: 3)
+  stabilityCheckInterval: 100   // Interval between stability checks (default: 100)
+};
+
+await stableClick(page, '#dynamic-button', clickConfig);
+await stableFill(page, '#search', 'query', baseConfig);
+await stableSelect(page, '#dropdown', 'option-1', baseConfig);
 ```
 
 **Stable Click:**
