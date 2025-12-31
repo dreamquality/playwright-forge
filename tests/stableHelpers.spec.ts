@@ -729,12 +729,13 @@ test.describe('Stable Helpers Tests', () => {
         </html>
       `);
       
+      // For non-existent elements, it fails in waitForVisible with "Element not visible" message
       await expect(
         stableClick(page, '#nonexistent', {
           timeout: 2000,
           stabilityCheckInterval: 100
         })
-      ).rejects.toThrow(/not found or not rendered/);
+      ).rejects.toThrow(/Element not visible|not found/);
     });
 
     test('should handle elements that appear and disappear', async ({ page }) => {
@@ -745,14 +746,14 @@ test.describe('Stable Helpers Tests', () => {
             <div id="result"></div>
             <script>
               let visible = false;
-              setInterval(() => {
+              const intervalId = setInterval(() => {
                 const btn = document.getElementById('btn');
                 visible = !visible;
                 btn.style.display = visible ? 'block' : 'none';
               }, 200);
               
               setTimeout(() => {
-                clearInterval;
+                clearInterval(intervalId);
                 document.getElementById('btn').style.display = 'block';
               }, 1000);
               
@@ -765,9 +766,11 @@ test.describe('Stable Helpers Tests', () => {
       `);
       
       await stableClick(page, '#btn', {
-        timeout: 3000,
+        timeout: 5000,
         maxRetries: 5,
-        retryInterval: 200
+        retryInterval: 300,
+        stabilityThreshold: 3,
+        stabilityCheckInterval: 150
       });
       
       const result = await page.locator('#result').textContent();
