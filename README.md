@@ -495,12 +495,12 @@ await stableSelect(page, '#dropdown', 'option-1', config);
 // Configure for flaky environments
 const config = { 
   maxRetries: 5, 
-  timeout: 10000, 
-  debug: true 
+  timeout: 10000
 };
 
 // Fill form with automatic retries
 await stableFill(page, '#username', 'john.doe', config);
+// Avoid enabling debug when filling sensitive fields like passwords
 await stableFill(page, '#password', 'secret123', config);
 await stableSelect(page, '#role', 'admin', config);
 await stableClick(page, '#submit', config);
