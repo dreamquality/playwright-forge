@@ -47,3 +47,11 @@ export {
   type CIProvider,
   type CIAnnotationsConfig
 } from './ciAnnotations';
+export {
+  stableClick,
+  stableFill,
+  stableSelect,
+  type StableActionConfig,
+  type StableActionMode,
+  type ScrollBehavior
+} from './stableHelpers';
