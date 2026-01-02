@@ -44,6 +44,7 @@ export class DataFactory {
       id: faker.string.uuid(),
       name: faker.company.name(),
       catchPhrase: faker.company.catchPhrase(),
+      bs: faker.company.buzzPhrase(),
       industry: faker.commerce.department(),
       email: faker.internet.email(),
       website: faker.internet.url(),
