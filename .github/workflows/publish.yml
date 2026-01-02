@@ -22,7 +22,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -52,7 +52,7 @@ jobs:
       - name: Check version matches tag
         run: |
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION=${{ github.event.release.tag_name || inputs.tag }}
+          TAG_VERSION=${{ github.event.release.tag_name || github.event.inputs.tag }}
           TAG_VERSION=${TAG_VERSION#v}
           
           echo "Package version: $PACKAGE_VERSION"
