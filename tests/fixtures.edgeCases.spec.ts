@@ -14,7 +14,6 @@ import * as os from 'os';
 
 // Skip network-dependent tests in CI environments where external APIs may be blocked
 const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-const skipIfCI = isCI ? test.skip : test;
 
 test.describe('Fixtures Edge Cases', () => {
 
