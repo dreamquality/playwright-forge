@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   DataFactory,
   validateJsonSchema,
-  assertJsonSchema,
   softAssertions,
   poll,
   pollUntilValue,
@@ -10,7 +9,6 @@ import {
   loadYamlAsync,
   saveYaml,
   FileAssertions,
-  waitForDownload,
   faker
 } from '../src';
 import * as fs from 'fs';

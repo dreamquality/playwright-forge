@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  OpenApiMatcher,
   validateResponse
 } from '../src';
 import * as fs from 'fs';
