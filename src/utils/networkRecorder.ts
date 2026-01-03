@@ -404,10 +404,34 @@ export class MockServer {
       return requestUrl === recordedUrl;
     }
 
-    // Flexible matching - compare path and query params
+    // Flexible matching - compare path and, optionally, query params
     const reqUrl = new URL(requestUrl);
     const recUrl = new URL(recordedUrl);
 
+    const matchQueryParams =
+      (this as any).config && (this as any).config.matchQueryParams;
+
+    if (matchQueryParams) {
+      // Normalize and compare query parameters to avoid order-related mismatches
+      const reqParams = new URLSearchParams(reqUrl.search);
+      const recParams = new URLSearchParams(recUrl.search);
+
+      const normalizeParams = (params: URLSearchParams): string => {
+        const entries = Array.from(params.entries()).sort(([aKey], [bKey]) =>
+          aKey.localeCompare(bKey),
+        );
+        const normalized = new URLSearchParams();
+        for (const [key, value] of entries) {
+          normalized.append(key, value);
+        }
+        return normalized.toString();
+      };
+
+      return (
+        reqUrl.pathname === recUrl.pathname &&
+        normalizeParams(reqParams) === normalizeParams(recParams)
+      );
+    }
     return reqUrl.pathname === recUrl.pathname;
   }
 
