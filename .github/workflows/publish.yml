@@ -61,7 +61,7 @@ jobs:
       
       - name:  Check version matches tag
         run:  |
-          PACKAGE_VERSION=$(node -p "require('./package. json').version")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
           TAG_VERSION=${{ github.event.release.tag_name || github.event.inputs.tag }}
           TAG_VERSION=${TAG_VERSION#v}
           
