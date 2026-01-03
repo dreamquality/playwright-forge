@@ -133,9 +133,11 @@ test.describe('Sessions Fixture - Types and Configuration', () => {
     // Simulate token path extraction
     const tokenPath = 'data.token';
     const parts = tokenPath.split('.');
-    let current: any = responseData;
+    let current: unknown = responseData;
     for (const part of parts) {
-      current = current[part];
+      if (current && typeof current === 'object' && part in current) {
+        current = (current as Record<string, unknown>)[part];
+      }
     }
     
     expect(current).toBe('nested-token-123');

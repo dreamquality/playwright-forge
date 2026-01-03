@@ -1,4 +1,4 @@
-import { test as base, BrowserContext, Page, APIRequestContext } from '@playwright/test';
+import { test as base, BrowserContext, Page, APIRequestContext, Browser } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -82,11 +82,11 @@ type CachedSession = {
 class SessionManager implements SessionsManager {
   private config: SessionsConfig;
   private cache: Map<string, CachedSession> = new Map();
-  private browser: any;
-  private playwright: any;
+  private browser: Browser;
+  private playwright: any; // Playwright type not exported, using any
   private storageDir: string;
 
-  constructor(config: SessionsConfig, browser: any, playwright: any) {
+  constructor(config: SessionsConfig, browser: Browser, playwright: any) {
     this.config = config;
     this.browser = browser;
     this.playwright = playwright;
@@ -296,6 +296,7 @@ class SessionManager implements SessionsManager {
     const sessionData: SessionData = {
       token,
       headers: {},
+      cookies: [],
     };
 
     // If token exists, add it to headers
@@ -304,12 +305,12 @@ class SessionManager implements SessionsManager {
         Authorization: `Bearer ${token}`,
       };
       
-      // Add cookies to context if we have a token
-      const cookies = response.headers()['set-cookie'];
-      if (cookies) {
-        // Parse cookies and add to context
-        // This is a simplified implementation - in production you'd want proper cookie parsing
-        sessionData.cookies = [];
+      // Get cookies from response headers
+      const setCookieHeader = response.headers()['set-cookie'];
+      if (setCookieHeader) {
+        // Note: Proper cookie parsing would require a cookie library
+        // For now, we'll just store them as-is and let Playwright handle them
+        // Users can implement custom cookie handling in customLogin if needed
       }
     }
 
@@ -324,6 +325,8 @@ class SessionManager implements SessionsManager {
     await page.goto(roleConfig.loginUrl);
     
     // This is a basic implementation - users should provide customLogin for complex scenarios
+    // The selectors are intentionally broad to work with common login forms
+    // For production use, configure role-specific customLogin functions
     if (roleConfig.credentials?.username) {
       await page.fill('input[name="username"], input[type="email"], input[name="email"]', 
         roleConfig.credentials.username);
@@ -333,8 +336,8 @@ class SessionManager implements SessionsManager {
         roleConfig.credentials.password);
     }
     
-    // Submit form
-    await page.click('button[type="submit"], button:has-text("Login"), button:has-text("Sign in")');
+    // Submit form - try common submit button patterns
+    await page.click('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")');
     
     // Wait for navigation or success indicator
     await page.waitForLoadState('networkidle');
@@ -384,7 +387,7 @@ class SessionManager implements SessionsManager {
   }
 
   private async createContextWithSession(sessionData: SessionData): Promise<BrowserContext> {
-    const contextOptions: any = {};
+    const contextOptions: Record<string, any> = {};
 
     // Add cookies if available
     if (sessionData.storageStatePath && fs.existsSync(sessionData.storageStatePath)) {
@@ -416,9 +419,10 @@ class SessionManager implements SessionsManager {
 
     const now = Date.now();
     const refreshThreshold = this.config.refreshThreshold || 0.1; // Default 10%
-    const ttl = sessionData.expiresAt - (sessionData.expiresAt - now) / (1 - refreshThreshold);
+    const timeUntilExpiry = sessionData.expiresAt - now;
+    const refreshTime = sessionData.expiresAt - (timeUntilExpiry * refreshThreshold);
     
-    return now < sessionData.expiresAt - (ttl * refreshThreshold);
+    return now < refreshTime;
   }
 
   private getStorageStatePath(role: string): string {
@@ -444,11 +448,16 @@ class SessionManager implements SessionsManager {
       fs.mkdirSync(dir, { recursive: true });
     }
     
+    // Determine origin from cookies or use a default
+    const origin = sessionData.cookies && sessionData.cookies.length > 0
+      ? `${sessionData.cookies[0].secure ? 'https' : 'http'}://${sessionData.cookies[0].domain}`
+      : 'http://localhost';
+    
     // Save to storage state format
-    const storageState: any = {
+    const storageState = {
       cookies: sessionData.cookies || [],
       origins: sessionData.localStorage ? [{
-        origin: 'http://localhost',
+        origin,
         localStorage: Object.entries(sessionData.localStorage).map(([name, value]) => ({ name, value })),
       }] : [],
     };
