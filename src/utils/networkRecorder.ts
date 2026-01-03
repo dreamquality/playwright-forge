@@ -310,7 +310,8 @@ export class MockServer {
       const data = fs.readFileSync(filepath, 'utf-8');
       this.recordings = JSON.parse(data);
     } catch (error) {
-      throw new Error(`Failed to parse recordings file ${filepath}: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to parse recordings file ${filepath}: ${errorMessage}`);
     }
   }
 
