@@ -167,8 +167,15 @@ class SessionManager implements SessionsManager {
       this.cache.delete(role);
       
       // Clean up storage file
-      if (cached.data.storageStatePath && fsSync.existsSync(cached.data.storageStatePath)) {
-        await fs.unlink(cached.data.storageStatePath);
+      if (cached.data.storageStatePath) {
+        try {
+          await fs.unlink(cached.data.storageStatePath);
+        } catch (error: any) {
+          // Ignore ENOENT (file already deleted)
+          if (error.code !== 'ENOENT') {
+            console.warn(`Failed to delete session file: ${error.message}`);
+          }
+        }
       }
     }
   }
@@ -406,7 +413,7 @@ class SessionManager implements SessionsManager {
     const contextOptions: Record<string, any> = {};
 
     // Load storageState if available - the file contains both cookies and localStorage
-    if (sessionData.storageStatePath && fsSync.existsSync(sessionData.storageStatePath)) {
+    if (sessionData.storageStatePath) {
       try {
         const fileContent = await fs.readFile(sessionData.storageStatePath, 'utf-8');
         const savedData = JSON.parse(fileContent);
@@ -415,9 +422,11 @@ class SessionManager implements SessionsManager {
         if (savedData.storageState) {
           contextOptions.storageState = savedData.storageState;
         }
-      } catch (error) {
+      } catch (error: any) {
         // If we can't read or parse the file, just skip it
-        console.warn(`Failed to load storage state from ${sessionData.storageStatePath}:`, error);
+        if (error.code !== 'ENOENT') {
+          console.warn(`Failed to load storage state from ${sessionData.storageStatePath}:`, error.message);
+        }
       }
     }
 
@@ -447,20 +456,27 @@ class SessionManager implements SessionsManager {
 
   private async loadSessionFromDisk(filePath: string): Promise<SessionData | null> {
     try {
-      if (fsSync.existsSync(filePath)) {
-        const content = await fs.readFile(filePath, 'utf-8');
-        return JSON.parse(content);
+      const content = await fs.readFile(filePath, 'utf-8');
+      return JSON.parse(content);
+    } catch (error: any) {
+      // File doesn't exist or is invalid/corrupted - return null
+      if (error.code !== 'ENOENT') {
+        console.warn(`Failed to load session from ${filePath}: ${error.message}`);
       }
-    } catch (error) {
-      // Invalid or corrupted file, ignore
+      return null;
     }
-    return null;
   }
 
   private async saveSessionToDisk(filePath: string, sessionData: SessionData): Promise<void> {
     const dir = path.dirname(filePath);
-    if (!fsSync.existsSync(dir)) {
+    
+    try {
       await fs.mkdir(dir, { recursive: true });
+    } catch (error: any) {
+      // Ignore EEXIST error
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
     }
     
     // Determine origin from cookies or use a default
