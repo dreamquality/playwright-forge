@@ -9,3 +9,7 @@ playwright/.cache/
 .env
 .env.local
 coverage/
+.auth/
+.sessions/
+.sessions-*/
+
