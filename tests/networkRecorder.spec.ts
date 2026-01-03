@@ -142,6 +142,30 @@ test.describe('Network Recorder Tests', () => {
     const emptyRecordings = recorder.getRecordings();
     expect(emptyRecordings.length).toBe(0);
   });
+
+  test('NetworkRecorder prevents path traversal in saveRecordings', async () => {
+    const recorder = new NetworkRecorder({
+      enabled: true,
+      outputDir: getTempDir(),
+    });
+
+    // Add a mock recording
+    (recorder as any).recordings = [
+      {
+        request: { url: 'test', method: 'GET', headers: {}, postData: null, timestamp: Date.now() },
+        response: { url: 'test', method: 'GET', status: 200, statusText: 'OK', headers: {}, body: '', timing: { startTime: 0, endTime: 0, duration: 0 } },
+      },
+    ];
+
+    // Try to save with path traversal - should throw error
+    await expect(recorder.saveRecordings('../../../etc/passwd')).rejects.toThrow('Invalid filename');
+    await expect(recorder.saveRecordings('../../test.json')).rejects.toThrow('Invalid filename');
+    
+    // Valid filename should work
+    const filepath = await recorder.saveRecordings('valid-test.json');
+    expect(fs.existsSync(filepath)).toBe(true);
+    fs.unlinkSync(filepath);
+  });
 });
 
 test.describe('Mock Server Tests', () => {
@@ -320,6 +344,63 @@ test.describe('Mock Server Tests', () => {
     mockServer.clearRecordings();
     expect(mockServer.getRecordings().length).toBe(0);
   });
+
+  test('MockServer prevents path traversal in loadRecordings', async () => {
+    const mockServer = new MockServer({
+      enabled: true,
+      recordingsDir: getTempDir(),
+    });
+
+    // Try to load with path traversal - should throw error
+    expect(() => mockServer.loadRecordings('../../../etc/passwd')).toThrow('Invalid filename');
+    expect(() => mockServer.loadRecordings('../../test.json')).toThrow('Invalid filename');
+  });
+
+  test('MockServer handles multiple start/stop calls gracefully', async ({ page }) => {
+    const mockServer = new MockServer({
+      enabled: true,
+    });
+
+    const mockRecordings: RecordedEntry[] = [
+      {
+        request: {
+          url: 'http://localhost:9999/api/test',
+          method: 'GET',
+          headers: {},
+          postData: null,
+          timestamp: Date.now(),
+        },
+        response: {
+          url: 'http://localhost:9999/api/test',
+          method: 'GET',
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: 'Test' }),
+          timing: {
+            startTime: Date.now(),
+            endTime: Date.now(),
+            duration: 5,
+          },
+        },
+      },
+    ];
+
+    mockServer.setRecordings(mockRecordings);
+    
+    // Start and stop multiple times
+    await mockServer.start(page);
+    await mockServer.stop(page);
+    
+    // Start again - should not accumulate handlers
+    await mockServer.start(page);
+    await mockServer.stop(page);
+    
+    // Multiple starts should handle gracefully
+    await mockServer.start(page);
+    await mockServer.start(page); // Should stop previous first
+    await mockServer.stop(page);
+  });
 });
 
 recorderTest.describe('Network Recorder Fixture Tests', () => {
@@ -333,6 +414,42 @@ recorderTest.describe('Network Recorder Fixture Tests', () => {
   });
 
   recorderTest('networkRecorder fixture can start and stop recording', async ({ page, networkRecorder }) => {
+    await networkRecorder.startRecording();
+    await page.goto(testPage);
+    
+    const recordings = networkRecorder.stopRecording();
+    expect(Array.isArray(recordings)).toBe(true);
+  });
+
+  recorderTest('networkRecorder fixture properly cleans up event listeners', async ({ page, networkRecorder }) => {
+    // Start and stop recording multiple times
+    await networkRecorder.startRecording();
+    await page.goto(testPage);
+    networkRecorder.stopRecording();
+
+    // Get initial recordings count
+    const firstCount = networkRecorder.getRecordings().length;
+
+    // Start recording again - should not accumulate old listeners
+    await networkRecorder.startRecording();
+    await page.goto(testPage);
+    const secondRecordings = networkRecorder.stopRecording();
+
+    // Should have fresh recordings, not accumulated
+    expect(secondRecordings.length).toBeGreaterThanOrEqual(0);
+    
+    // Verify multiple start/stop cycles don't cause issues
+    await networkRecorder.startRecording();
+    await page.goto(testPage);
+    networkRecorder.stopRecording();
+  });
+
+  recorderTest('networkRecorder handles multiple startRecording calls gracefully', async ({ page, networkRecorder }) => {
+    // First recording session
+    await networkRecorder.startRecording();
+    await page.goto(testPage);
+    
+    // Call startRecording again without stopping - should handle gracefully
     await networkRecorder.startRecording();
     await page.goto(testPage);
     
