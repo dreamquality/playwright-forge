@@ -89,8 +89,11 @@ export class NetworkRecorder {
       : (config.enabled ?? true);
 
     const maxBodySizeFromEnv = process.env.NETWORK_RECORDER_MAX_BODY_SIZE;
-    const maxBodySize = maxBodySizeFromEnv && maxBodySizeFromEnv.trim() 
-      ? parseInt(maxBodySizeFromEnv, 10) 
+    const parsedMaxBodySize = maxBodySizeFromEnv && maxBodySizeFromEnv.trim()
+      ? parseInt(maxBodySizeFromEnv, 10)
+      : NaN;
+    const maxBodySize = !isNaN(parsedMaxBodySize)
+      ? parsedMaxBodySize
       : (config.maxBodySize ?? 10 * 1024 * 1024);
 
     this.config = {
