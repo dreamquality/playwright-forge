@@ -1,6 +1,7 @@
 import { Page, Request, Response, Route } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 /**
  * Recorded HTTP request/response data
@@ -80,6 +81,7 @@ export class NetworkRecorder {
   private recordings: RecordedEntry[] = [];
   private config: Required<NetworkRecorderConfig>;
   private isRecording = false;
+  private responseHandler?: (response: Response) => Promise<void>;
 
   constructor(config: NetworkRecorderConfig = {}) {
     const enabledFromEnv = process.env.NETWORK_RECORDER_ENABLED;
@@ -87,11 +89,16 @@ export class NetworkRecorder {
       ? enabledFromEnv === 'true' 
       : (config.enabled ?? true);
 
+    const maxBodySizeFromEnv = process.env.NETWORK_RECORDER_MAX_BODY_SIZE;
+    const maxBodySize = maxBodySizeFromEnv && maxBodySizeFromEnv.trim() 
+      ? parseInt(maxBodySizeFromEnv, 10) 
+      : (config.maxBodySize ?? 10 * 1024 * 1024);
+
     this.config = {
       enabled,
       outputDir: process.env.NETWORK_RECORDER_OUTPUT_DIR || config.outputDir || 'network-recordings',
       filter: config.filter || {},
-      maxBodySize: parseInt(process.env.NETWORK_RECORDER_MAX_BODY_SIZE || '') || config.maxBodySize || 10 * 1024 * 1024,
+      maxBodySize,
       prettifyJson: config.prettifyJson ?? true,
     };
   }
@@ -107,8 +114,8 @@ export class NetworkRecorder {
     this.isRecording = true;
     this.recordings = [];
 
-    // Listen to all requests/responses
-    page.on('response', async (response: Response) => {
+    // Create response handler
+    this.responseHandler = async (response: Response) => {
       try {
         const request = response.request();
         
@@ -117,9 +124,9 @@ export class NetworkRecorder {
           return;
         }
 
-        const startTime = Date.now();
+        const requestTimestamp = Date.now();
         const body = await this.safeGetBody(response);
-        const endTime = Date.now();
+        const responseTimestamp = Date.now();
 
         const entry: RecordedEntry = {
           request: {
@@ -127,7 +134,7 @@ export class NetworkRecorder {
             method: request.method(),
             headers: request.headers(),
             postData: request.postData(),
-            timestamp: startTime,
+            timestamp: requestTimestamp,
           },
           response: {
             url: response.url(),
@@ -137,9 +144,9 @@ export class NetworkRecorder {
             headers: response.headers(),
             body,
             timing: {
-              startTime,
-              endTime,
-              duration: endTime - startTime,
+              startTime: requestTimestamp,
+              endTime: responseTimestamp,
+              duration: responseTimestamp - requestTimestamp,
             },
           },
         };
@@ -149,7 +156,10 @@ export class NetworkRecorder {
         // Silently ignore errors (e.g., body already consumed)
         console.warn(`[NetworkRecorder] Failed to record response: ${error}`);
       }
-    });
+    };
+
+    // Listen to all requests/responses
+    page.on('response', this.responseHandler);
   }
 
   /**
@@ -157,6 +167,7 @@ export class NetworkRecorder {
    */
   stopRecording(): RecordedEntry[] {
     this.isRecording = false;
+    this.responseHandler = undefined;
     return this.recordings;
   }
 
@@ -265,13 +276,18 @@ export class MockServer {
       ? enabledFromEnv === 'true' 
       : (config.enabled ?? true);
 
+    const delayFromEnv = process.env.MOCK_SERVER_DELAY;
+    const delay = delayFromEnv && delayFromEnv.trim() 
+      ? parseInt(delayFromEnv, 10) 
+      : (config.delay ?? 0);
+
     this.config = {
       enabled,
       recordingsDir: process.env.MOCK_SERVER_RECORDINGS_DIR || config.recordingsDir || 'network-recordings',
       strictMatching: config.strictMatching ?? false,
       dynamicFields: config.dynamicFields || [],
       fallbackToNetwork: config.fallbackToNetwork ?? false,
-      delay: parseInt(process.env.MOCK_SERVER_DELAY || '') || config.delay || 0,
+      delay,
     };
   }
 
@@ -285,8 +301,12 @@ export class MockServer {
       throw new Error(`Recordings file not found: ${filepath}`);
     }
 
-    const data = fs.readFileSync(filepath, 'utf-8');
-    this.recordings = JSON.parse(data);
+    try {
+      const data = fs.readFileSync(filepath, 'utf-8');
+      this.recordings = JSON.parse(data);
+    } catch (error) {
+      throw new Error(`Failed to parse recordings file ${filepath}: ${error}`);
+    }
   }
 
   /**
@@ -387,20 +407,6 @@ export class MockServer {
     const recUrl = new URL(recordedUrl);
 
     return reqUrl.pathname === recUrl.pathname;
-  }
-
-  /**
-   * Match dynamic fields in response body
-   */
-  private matchDynamicFields(actualBody: any, recordedBody: any): boolean {
-    // If no dynamic fields configured, do exact match
-    if (this.config.dynamicFields.length === 0) {
-      return JSON.stringify(actualBody) === JSON.stringify(recordedBody);
-    }
-
-    // Apply dynamic field matchers
-    // This is a simplified version - full implementation would use JSON path
-    return true;
   }
 
   /**

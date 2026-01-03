@@ -3,6 +3,7 @@ import { networkRecorderFixture, mockServerFixture } from '../src/fixtures/netwo
 import { NetworkRecorder, MockServer, RecordedEntry } from '../src/utils/networkRecorder';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 // Create fixtures test
 const recorderTest = networkRecorderFixture;
@@ -11,11 +12,14 @@ const mockTest = mockServerFixture;
 // Use a data URL for testing (no external network needed)
 const testPage = 'data:text/html,<html><body><h1>Test Page</h1></body></html>';
 
+// Cross-platform temp directory
+const getTempDir = () => path.join(os.tmpdir(), 'playwright-forge-tests');
+
 test.describe('Network Recorder Tests', () => {
   test('NetworkRecorder can be instantiated with config', async () => {
     const recorder = new NetworkRecorder({
       enabled: true,
-      outputDir: '/tmp/test-recordings',
+      outputDir: getTempDir(),
     });
 
     expect(recorder).toBeDefined();
@@ -25,7 +29,7 @@ test.describe('Network Recorder Tests', () => {
   test('NetworkRecorder filters by domain', async () => {
     const recorder = new NetworkRecorder({
       enabled: true,
-      outputDir: '/tmp/test-recordings',
+      outputDir: getTempDir(),
       filter: {
         domains: ['example.com'],
       },
@@ -37,7 +41,7 @@ test.describe('Network Recorder Tests', () => {
   test('NetworkRecorder filters by method', async () => {
     const recorder = new NetworkRecorder({
       enabled: true,
-      outputDir: '/tmp/test-recordings',
+      outputDir: getTempDir(),
       filter: {
         methods: ['GET'],
       },
@@ -49,7 +53,7 @@ test.describe('Network Recorder Tests', () => {
   test('NetworkRecorder filters by status code', async () => {
     const recorder = new NetworkRecorder({
       enabled: true,
-      outputDir: '/tmp/test-recordings',
+      outputDir: getTempDir(),
       filter: {
         statusCodes: [200],
       },
@@ -59,7 +63,7 @@ test.describe('Network Recorder Tests', () => {
   });
 
   test('NetworkRecorder saves recordings to file', async () => {
-    const outputDir = '/tmp/test-recordings';
+    const outputDir = getTempDir();
     const recorder = new NetworkRecorder({
       enabled: true,
       outputDir,
@@ -120,7 +124,7 @@ test.describe('Network Recorder Tests', () => {
   test('NetworkRecorder can clear recordings', async () => {
     const recorder = new NetworkRecorder({
       enabled: true,
-      outputDir: '/tmp/test-recordings',
+      outputDir: getTempDir(),
     });
 
     // Add mock recordings
@@ -441,16 +445,16 @@ test.describe('Integration Tests', () => {
   test('Environment variables override config for recorder', async () => {
     // Set environment variables
     process.env.NETWORK_RECORDER_ENABLED = 'false';
-    process.env.NETWORK_RECORDER_OUTPUT_DIR = '/tmp/env-test';
+    process.env.NETWORK_RECORDER_OUTPUT_DIR = path.join(getTempDir(), 'env-test');
     
     const recorder = new NetworkRecorder({
       enabled: true, // Should be overridden by env var
-      outputDir: '/tmp/config-test',
+      outputDir: path.join(getTempDir(), 'config-test'),
     });
 
     // Config should be overridden by env vars
     expect((recorder as any).config.enabled).toBe(false);
-    expect((recorder as any).config.outputDir).toBe('/tmp/env-test');
+    expect((recorder as any).config.outputDir).toBe(path.join(getTempDir(), 'env-test'));
 
     // Cleanup
     delete process.env.NETWORK_RECORDER_ENABLED;
@@ -459,15 +463,15 @@ test.describe('Integration Tests', () => {
 
   test('Mock server environment variables override config', async () => {
     process.env.MOCK_SERVER_ENABLED = 'false';
-    process.env.MOCK_SERVER_RECORDINGS_DIR = '/tmp/mock-env-test';
+    process.env.MOCK_SERVER_RECORDINGS_DIR = path.join(getTempDir(), 'mock-env-test');
     
     const mockServer = new MockServer({
       enabled: true, // Should be overridden by env var
-      recordingsDir: '/tmp/mock-config-test',
+      recordingsDir: path.join(getTempDir(), 'mock-config-test'),
     });
 
     expect((mockServer as any).config.enabled).toBe(false);
-    expect((mockServer as any).config.recordingsDir).toBe('/tmp/mock-env-test');
+    expect((mockServer as any).config.recordingsDir).toBe(path.join(getTempDir(), 'mock-env-test'));
 
     // Cleanup
     delete process.env.MOCK_SERVER_ENABLED;
