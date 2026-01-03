@@ -177,11 +177,27 @@ export class NetworkRecorder {
    * Save recordings to a JSON file
    */
   async saveRecordings(filename: string): Promise<string> {
+    // Validate filename to prevent path traversal and invalid filenames
+    if (!filename || filename.trim() === '') {
+      throw new Error(`Invalid filename: filename cannot be empty.`);
+    }
+
+    const safeFilename = path.basename(filename);
+    if (safeFilename !== filename || 
+        filename.includes('..') || 
+        filename.includes('/') || 
+        filename.includes('\\') ||
+        filename.includes('\x00') ||
+        safeFilename === '.' ||
+        safeFilename === '..') {
+      throw new Error(`Invalid filename: ${filename}. Filename must not contain path separators or parent directory references.`);
+    }
+
     if (!fs.existsSync(this.config.outputDir)) {
       fs.mkdirSync(this.config.outputDir, { recursive: true });
     }
 
-    const filepath = path.join(this.config.outputDir, filename);
+    const filepath = path.join(this.config.outputDir, safeFilename);
     const data = this.config.prettifyJson 
       ? JSON.stringify(this.recordings, null, 2)
       : JSON.stringify(this.recordings);
@@ -300,7 +316,23 @@ export class MockServer {
    * Load recordings from a file
    */
   loadRecordings(filename: string): void {
-    const filepath = path.join(this.config.recordingsDir, filename);
+    // Validate filename to prevent path traversal and invalid filenames
+    if (!filename || filename.trim() === '') {
+      throw new Error(`Invalid filename: filename cannot be empty.`);
+    }
+
+    const safeFilename = path.basename(filename);
+    if (safeFilename !== filename || 
+        filename.includes('..') || 
+        filename.includes('/') || 
+        filename.includes('\\') ||
+        filename.includes('\x00') ||
+        safeFilename === '.' ||
+        safeFilename === '..') {
+      throw new Error(`Invalid filename: ${filename}. Filename must not contain path separators or parent directory references.`);
+    }
+
+    const filepath = path.join(this.config.recordingsDir, safeFilename);
     
     if (!fs.existsSync(filepath)) {
       throw new Error(`Recordings file not found: ${filepath}`);
