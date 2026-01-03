@@ -279,8 +279,11 @@ export class MockServer {
       : (config.enabled ?? true);
 
     const delayFromEnv = process.env.MOCK_SERVER_DELAY;
-    const delay = delayFromEnv && delayFromEnv.trim() 
-      ? parseInt(delayFromEnv, 10) 
+    const delay = delayFromEnv && delayFromEnv.trim()
+      ? (() => {
+          const parsed = parseInt(delayFromEnv, 10);
+          return !isNaN(parsed) ? parsed : (config.delay ?? 0);
+        })()
       : (config.delay ?? 0);
 
     this.config = {
