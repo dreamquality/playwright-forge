@@ -1,7 +1,6 @@
 import { Page, Request, Response, Route } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 
 /**
  * Recorded HTTP request/response data
