@@ -1,13 +1,10 @@
 {
-  "name": "@dreamquality/playwright-forge",
+  "name": "playwright-forge",
   "version": "1.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dreamquality/playwright-forge.git"
   },
-  "publishConfig": {
-    "registry":  "https://npm.pkg.github.com"
-  }
   "description": "Reusable fixtures and helpers to speed up Playwright UI and API tests.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
