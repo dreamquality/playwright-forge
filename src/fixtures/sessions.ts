@@ -1,5 +1,6 @@
-import { test as base, BrowserContext, Page, APIRequestContext, Browser } from '@playwright/test';
-import * as fs from 'fs';
+import { test as base, BrowserContext, Page, APIRequestContext, Browser, Cookie } from '@playwright/test';
+import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
@@ -27,12 +28,13 @@ export type RoleConfig = {
  * Session data stored for a role
  */
 export type SessionData = {
-  cookies?: any[];
+  cookies?: Cookie[];
   localStorage?: Record<string, string>;
   headers?: Record<string, string>;
   token?: string;
   expiresAt?: number;
   storageStatePath?: string;
+  originalTTL?: number;
 };
 
 /**
@@ -82,6 +84,7 @@ type CachedSession = {
 class SessionManager implements SessionsManager {
   private config: SessionsConfig;
   private cache: Map<string, CachedSession> = new Map();
+  private loginPromises: Map<string, Promise<RoleSession>> = new Map();
   private browser: Browser;
   private playwright: any; // Playwright type not exported, using any
   private storageDir: string;
@@ -93,8 +96,8 @@ class SessionManager implements SessionsManager {
     this.storageDir = config.storageDir || path.join(process.cwd(), '.sessions');
     
     // Ensure storage directory exists
-    if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
+    if (!fsSync.existsSync(this.storageDir)) {
+      fsSync.mkdirSync(this.storageDir, { recursive: true });
     }
   }
 
@@ -116,13 +119,27 @@ class SessionManager implements SessionsManager {
       };
     }
 
+    // Check if a login is already in progress for this role
+    const existingPromise = this.loginPromises.get(role);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
     // Need to create or refresh session
     if (cached) {
       // Session expired, need to refresh
       await this.clearRole(role);
     }
 
-    return await this.createSession(role, roleConfig);
+    const loginPromise = this.createSession(role, roleConfig);
+    this.loginPromises.set(role, loginPromise);
+    
+    try {
+      const session = await loginPromise;
+      return session;
+    } finally {
+      this.loginPromises.delete(role);
+    }
   }
 
   async refresh(role: string): Promise<RoleSession> {
@@ -150,8 +167,8 @@ class SessionManager implements SessionsManager {
       this.cache.delete(role);
       
       // Clean up storage file
-      if (cached.data.storageStatePath && fs.existsSync(cached.data.storageStatePath)) {
-        fs.unlinkSync(cached.data.storageStatePath);
+      if (cached.data.storageStatePath && fsSync.existsSync(cached.data.storageStatePath)) {
+        await fs.unlink(cached.data.storageStatePath);
       }
     }
   }
@@ -165,9 +182,7 @@ class SessionManager implements SessionsManager {
 
   private async createSession(role: string, roleConfig: RoleConfig): Promise<RoleSession> {
     const storageStatePath = this.getStorageStatePath(role);
-    let sessionData: SessionData = {
-      storageStatePath,
-    };
+    let sessionData: SessionData;
 
     // Try to load existing session from disk
     const loadedData = await this.loadSessionFromDisk(storageStatePath);
@@ -175,7 +190,10 @@ class SessionManager implements SessionsManager {
       sessionData = loadedData;
     } else {
       // Need to perform login
+      const ttl = roleConfig.ttl || this.config.defaultTTL || 3600000; // Default 1 hour
       sessionData = await this.performLogin(role, roleConfig);
+      sessionData.expiresAt = Date.now() + ttl;
+      sessionData.originalTTL = ttl;
       await this.saveSessionToDisk(storageStatePath, sessionData);
     }
 
@@ -216,7 +234,7 @@ class SessionManager implements SessionsManager {
       }
       // Try API-based login
       else if (this.config.preferApiLogin !== false && roleConfig.apiLoginEndpoint) {
-        sessionData = await this.performApiLogin(roleConfig, tempContext, tempApi);
+        sessionData = await this.performApiLogin(roleConfig, tempApi);
       }
       // Fall back to UI-based login
       else if (roleConfig.loginUrl) {
@@ -225,10 +243,6 @@ class SessionManager implements SessionsManager {
       } else {
         throw new Error(`No login method configured for role '${role}'`);
       }
-
-      // Set TTL
-      const ttl = roleConfig.ttl || this.config.defaultTTL || 3600000; // Default 1 hour
-      sessionData.expiresAt = Date.now() + ttl;
 
       return sessionData;
     } finally {
@@ -240,7 +254,6 @@ class SessionManager implements SessionsManager {
 
   private async performApiLogin(
     roleConfig: RoleConfig,
-    context: BrowserContext,
     api: APIRequestContext
   ): Promise<SessionData> {
     if (!roleConfig.apiLoginEndpoint) {
@@ -305,13 +318,9 @@ class SessionManager implements SessionsManager {
         Authorization: `Bearer ${token}`,
       };
       
-      // Get cookies from response headers
-      const setCookieHeader = response.headers()['set-cookie'];
-      if (setCookieHeader) {
-        // Note: Proper cookie parsing would require a cookie library
-        // For now, we'll just store them as-is and let Playwright handle them
-        // Users can implement custom cookie handling in customLogin if needed
-      }
+      // Note: Set-Cookie headers from API responses are not automatically captured
+      // by Playwright's APIRequestContext. Users should use customLogin if they need
+      // to handle cookies from API responses, or rely on UI-based login to capture cookies.
     }
 
     return sessionData;
@@ -328,16 +337,23 @@ class SessionManager implements SessionsManager {
     // The selectors are intentionally broad to work with common login forms
     // For production use, configure role-specific customLogin functions
     if (roleConfig.credentials?.username) {
-      await page.fill('input[name="username"], input[type="email"], input[name="email"]', 
-        roleConfig.credentials.username);
+      const usernameLocator = page.locator('input[name="username"], input[type="email"], input[name="email"]');
+      if (await usernameLocator.count()) {
+        await usernameLocator.first().fill(roleConfig.credentials.username);
+      }
     }
     if (roleConfig.credentials?.password) {
-      await page.fill('input[name="password"], input[type="password"]', 
-        roleConfig.credentials.password);
+      const passwordLocator = page.locator('input[name="password"], input[type="password"]');
+      if (await passwordLocator.count()) {
+        await passwordLocator.first().fill(roleConfig.credentials.password);
+      }
     }
     
     // Submit form - try common submit button patterns
-    await page.click('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")');
+    const submitButton = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")');
+    if (await submitButton.count()) {
+      await submitButton.first().click();
+    }
     
     // Wait for navigation or success indicator
     await page.waitForLoadState('networkidle');
@@ -389,26 +405,23 @@ class SessionManager implements SessionsManager {
   private async createContextWithSession(sessionData: SessionData): Promise<BrowserContext> {
     const contextOptions: Record<string, any> = {};
 
-    // Add cookies if available
-    if (sessionData.storageStatePath && fs.existsSync(sessionData.storageStatePath)) {
-      contextOptions.storageState = sessionData.storageStatePath;
+    // Load storageState if available - the file contains both cookies and localStorage
+    if (sessionData.storageStatePath && fsSync.existsSync(sessionData.storageStatePath)) {
+      try {
+        const fileContent = await fs.readFile(sessionData.storageStatePath, 'utf-8');
+        const savedData = JSON.parse(fileContent);
+        
+        // Use the storageState format if it exists in the saved data
+        if (savedData.storageState) {
+          contextOptions.storageState = savedData.storageState;
+        }
+      } catch (error) {
+        // If we can't read or parse the file, just skip it
+        console.warn(`Failed to load storage state from ${sessionData.storageStatePath}:`, error);
+      }
     }
 
     const context = await this.browser.newContext(contextOptions);
-
-    // Set localStorage if we have data
-    if (sessionData.localStorage) {
-      const page = await context.newPage();
-      await page.evaluate((data: Record<string, string>): void => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = (globalThis as any).localStorage;
-        for (const [key, value] of Object.entries(data)) {
-          storage.setItem(key, value);
-        }
-      }, sessionData.localStorage);
-      await page.close();
-    }
-
     return context;
   }
 
@@ -419,8 +432,10 @@ class SessionManager implements SessionsManager {
 
     const now = Date.now();
     const refreshThreshold = this.config.refreshThreshold || 0.1; // Default 10%
-    const timeUntilExpiry = sessionData.expiresAt - now;
-    const refreshTime = sessionData.expiresAt - (timeUntilExpiry * refreshThreshold);
+    
+    // Use the original TTL if available for stable refresh calculation
+    const ttl = sessionData.originalTTL || (sessionData.expiresAt - now);
+    const refreshTime = sessionData.expiresAt - (ttl * refreshThreshold);
     
     return now < refreshTime;
   }
@@ -432,8 +447,8 @@ class SessionManager implements SessionsManager {
 
   private async loadSessionFromDisk(filePath: string): Promise<SessionData | null> {
     try {
-      if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf-8');
+      if (fsSync.existsSync(filePath)) {
+        const content = await fs.readFile(filePath, 'utf-8');
         return JSON.parse(content);
       }
     } catch (error) {
@@ -444,8 +459,8 @@ class SessionManager implements SessionsManager {
 
   private async saveSessionToDisk(filePath: string, sessionData: SessionData): Promise<void> {
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!fsSync.existsSync(dir)) {
+      await fs.mkdir(dir, { recursive: true });
     }
     
     // Determine origin from cookies or use a default
@@ -454,6 +469,7 @@ class SessionManager implements SessionsManager {
       : 'http://localhost';
     
     // Save to storage state format
+    // Note: Credentials are NOT persisted to disk for security reasons
     const storageState = {
       cookies: sessionData.cookies || [],
       origins: sessionData.localStorage ? [{
@@ -462,22 +478,51 @@ class SessionManager implements SessionsManager {
       }] : [],
     };
 
-    fs.writeFileSync(filePath, JSON.stringify({
+    await fs.writeFile(filePath, JSON.stringify({
       ...sessionData,
       storageState,
     }, null, 2));
   }
 
-  private extractTokenFromPath(data: any, path: string): string | undefined {
-    const parts = path.split('.');
-    let current = data;
+  private extractTokenFromPath(data: unknown, tokenPath: string): string | undefined {
+    if (data === null || typeof data !== 'object') {
+      return undefined;
+    }
+
+    const parts = tokenPath.split('.');
+    let current: unknown = data;
+    
     for (const part of parts) {
-      if (current && typeof current === 'object' && part in current) {
-        current = current[part];
+      if (current === null || typeof current !== 'object') {
+        return undefined;
+      }
+
+      // Support segments with optional array indices, e.g. "tokens[0]" or "data.items[0].value"
+      const arrayMatch = part.match(/^([^[]+)\[(\d+)\]$/);
+      
+      if (arrayMatch) {
+        // Handle array access like "tokens[0]"
+        const [, prop, indexStr] = arrayMatch;
+        const index = Number(indexStr);
+        
+        if (!(prop in (current as Record<string, unknown>))) {
+          return undefined;
+        }
+        
+        const array = (current as Record<string, unknown>)[prop];
+        if (!Array.isArray(array) || index < 0 || index >= array.length) {
+          return undefined;
+        }
+        
+        current = array[index];
+      } else if (part in (current as Record<string, unknown>)) {
+        // Handle regular property access
+        current = (current as Record<string, unknown>)[part];
       } else {
         return undefined;
       }
     }
+    
     return typeof current === 'string' ? current : undefined;
   }
 }
@@ -486,7 +531,17 @@ class SessionManager implements SessionsManager {
  * Get sessions configuration from environment variables or options
  */
 function getSessionsConfig(options?: Partial<SessionsConfig>): SessionsConfig {
-  const envRoles = process.env.SESSIONS_ROLES ? JSON.parse(process.env.SESSIONS_ROLES) : {};
+  let envRoles: Record<string, RoleConfig> = {};
+  
+  if (process.env.SESSIONS_ROLES) {
+    try {
+      envRoles = JSON.parse(process.env.SESSIONS_ROLES);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid JSON in SESSIONS_ROLES environment variable: ${message}`);
+    }
+  }
+  
   const envStorageDir = process.env.SESSIONS_STORAGE_DIR;
   const envDefaultTTL = process.env.SESSIONS_DEFAULT_TTL ? parseInt(process.env.SESSIONS_DEFAULT_TTL) : undefined;
   const envPreferApi = process.env.SESSIONS_PREFER_API_LOGIN === 'true';
@@ -543,22 +598,25 @@ function getSessionsConfig(options?: Partial<SessionsConfig>): SessionsConfig {
  * ```
  */
 export const sessionsFixture = base.extend<
-  { sessions: SessionsManager },
-  { sessionsConfig: SessionsConfig }
+  {},
+  { sessionsConfig: SessionsConfig; sessions: SessionsManager }
 >({
   sessionsConfig: [
     getSessionsConfig(),
     { scope: 'worker', option: true },
   ],
   
-  sessions: async ({ browser, playwright, sessionsConfig }, use) => {
-    const manager = new SessionManager(sessionsConfig, browser, playwright);
-    
-    await use(manager);
-    
-    // Cleanup all sessions
-    await manager.clearAll();
-  },
+  sessions: [
+    async ({ browser, playwright, sessionsConfig }, use) => {
+      const manager = new SessionManager(sessionsConfig, browser, playwright);
+      
+      await use(manager);
+      
+      // Cleanup all sessions
+      await manager.clearAll();
+    },
+    { scope: 'worker' },
+  ],
 });
 
 // Export types

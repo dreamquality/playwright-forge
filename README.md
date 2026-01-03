@@ -154,16 +154,16 @@ await sessions.clearRole('admin');
 await sessions.clearAll();
 
 // Access session data
-const admin = await sessions.get('admin');
-console.log(admin.data.token); // Bearer token
-console.log(admin.data.headers); // Headers with Authorization
-console.log(admin.data.localStorage); // localStorage data
-console.log(admin.data.cookies); // Cookies
+const adminSession = await sessions.get('admin');
+console.log(adminSession.data.token); // Bearer token
+console.log(adminSession.data.headers); // Headers with Authorization
+console.log(adminSession.data.localStorage); // localStorage data
+console.log(adminSession.data.cookies); // Cookies
 
 // Use custom headers with API requests
-const admin = await sessions.get('admin');
-const response = await admin.page.request.get('https://api.example.com/data', {
-  headers: admin.data.headers,
+const adminApi = await sessions.get('admin');
+const response = await adminApi.page.request.get('https://api.example.com/data', {
+  headers: adminApi.data.headers,
 });
 ```
 
