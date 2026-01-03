@@ -73,6 +73,161 @@ networkFixture('Network test', async ({ page, network }) => {
 });
 ```
 
+### Network Recorder Fixture
+Records HTTP requests and responses during test execution for analysis or replay.
+
+```typescript
+import { networkRecorderFixture } from 'playwright-forge';
+
+networkRecorderFixture('Record API calls', async ({ page, networkRecorder }) => {
+  // Start recording
+  await networkRecorder.startRecording();
+  
+  // Perform actions that generate network traffic
+  await page.goto('https://example.com');
+  await page.click('#load-data');
+  
+  // Stop recording and get recordings
+  const recordings = networkRecorder.stopRecording();
+  
+  // Save recordings to file
+  await networkRecorder.saveRecordings('test-recordings.json');
+});
+```
+
+**Features:**
+- Records URL, method, status, headers, body, and timing for each request/response
+- Configurable filters (by domain, method, path, status)
+- Saves recordings to JSON files per test or suite
+- Respects environment variables for CI/CD integration
+- Automatic cleanup on test teardown
+
+**Configuration:**
+```typescript
+// Via constructor (when using NetworkRecorder directly)
+const recorder = new NetworkRecorder({
+  enabled: true,
+  outputDir: 'network-recordings',
+  filter: {
+    domains: ['api.example.com'],
+    methods: ['GET', 'POST'],
+    pathPatterns: ['/api/', /\/users\/\d+/],
+    statusCodes: [200, 201]
+  },
+  maxBodySize: 10 * 1024 * 1024, // 10MB
+  prettifyJson: true
+});
+
+// Via environment variables
+// NETWORK_RECORDER_ENABLED=true
+// NETWORK_RECORDER_OUTPUT_DIR=./recordings
+// NETWORK_RECORDER_MAX_BODY_SIZE=5242880
+```
+
+### Mock Server Fixture
+Intercepts network requests and responds with recorded data for deterministic testing.
+
+```typescript
+import { mockServerFixture } from 'playwright-forge';
+
+mockServerFixture('Mock API responses', async ({ page, mockServer }) => {
+  // Load recordings from file
+  mockServer.loadRecordings('test-recordings.json');
+  
+  // Or set recordings manually
+  mockServer.setRecordings([
+    {
+      request: {
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        headers: {},
+        postData: null,
+        timestamp: Date.now()
+      },
+      response: {
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify([{ id: 1, name: 'John' }]),
+        timing: { startTime: Date.now(), endTime: Date.now() + 10, duration: 10 }
+      }
+    }
+  ]);
+  
+  // Start mock server
+  await mockServer.start();
+  
+  // Perform actions - network requests will be intercepted
+  await page.goto('https://example.com');
+  
+  // Stop mock server
+  await mockServer.stop();
+});
+```
+
+**Features:**
+- Replay mode: intercepts requests and responds from recorded data
+- Flexible URL matching (strict or path-based)
+- Support for dynamic fields via configurable matchers
+- Configurable artificial delays to simulate network latency
+- Fallback to real network if no mock data found (optional)
+- CI-friendly and deterministic
+
+**Configuration:**
+```typescript
+// Via constructor (when using MockServer directly)
+const mockServer = new MockServer({
+  enabled: true,
+  recordingsDir: 'network-recordings',
+  strictMatching: false, // false = match by path, true = exact URL match
+  fallbackToNetwork: false, // Return 404 if no match found
+  delay: 100, // Artificial delay in ms
+  dynamicFields: [
+    { path: 'data.id', matcher: 'uuid' },
+    { path: 'timestamp', matcher: 'timestamp' },
+    { path: 'data.count', matcher: 'number' }
+  ]
+});
+
+// Via environment variables
+// MOCK_SERVER_ENABLED=true
+// MOCK_SERVER_RECORDINGS_DIR=./recordings
+// MOCK_SERVER_DELAY=50
+```
+
+**Record and Replay Workflow:**
+```typescript
+import { test } from '@playwright/test';
+import { NetworkRecorder, MockServer } from 'playwright-forge';
+
+// Step 1: Record network traffic
+test('Record session', async ({ page }) => {
+  const recorder = new NetworkRecorder({
+    filter: { domains: ['api.example.com'] }
+  });
+  
+  await recorder.startRecording(page);
+  await page.goto('https://example.com');
+  // ... perform actions ...
+  recorder.stopRecording();
+  
+  await recorder.saveRecordings('my-test.json');
+});
+
+// Step 2: Replay with mocked responses
+test('Replay session', async ({ page }) => {
+  const mockServer = new MockServer();
+  mockServer.loadRecordings('my-test.json');
+  
+  await mockServer.start(page);
+  await page.goto('https://example.com');
+  // ... same actions, but with mocked responses ...
+  await mockServer.stop(page);
+});
+```
+
 ### Cleanup Fixture
 Manages teardown tasks ensuring proper cleanup even if tests fail.
 
@@ -547,14 +702,30 @@ FileAssertions.isNotEmpty('file.txt');
 You can combine multiple fixtures in your tests:
 
 ```typescript
-import { apiFixture, cleanupFixture, diagnosticsFixture } from 'playwright-forge';
+import { apiFixture, cleanupFixture, diagnosticsFixture, networkRecorderFixture } from 'playwright-forge';
 
 const test = apiFixture
   .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures);
+  .extend(diagnosticsFixture.fixtures)
+  .extend(networkRecorderFixture.fixtures);
 
-test('Combined test', async ({ api, cleanup, diagnostics }) => {
-  // Use all fixtures together
+test('Combined test', async ({ api, cleanup, diagnostics, networkRecorder }) => {
+  // Start recording network traffic
+  await networkRecorder.startRecording();
+  
+  // Use API fixture
+  const response = await api.get('https://api.example.com/data');
+  
+  // Register cleanup
+  cleanup.addTask(async () => {
+    await api.delete('/cleanup');
+  });
+  
+  // Capture diagnostics
+  await diagnostics.captureScreenshot('test-state');
+  
+  // Save recordings
+  await networkRecorder.saveRecordings();
 });
 ```
 
@@ -573,6 +744,7 @@ import {
   apiFixture,
   cleanupFixture,
   diagnosticsFixture,
+  networkRecorderFixture,
   DataFactory,
   validateJsonSchema,
   softAssertions
@@ -580,9 +752,19 @@ import {
 
 const test = apiFixture
   .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures);
+  .extend(diagnosticsFixture.fixtures)
+  .extend(networkRecorderFixture.fixtures);
 
-test('Complete example', async ({ api, cleanup, diagnostics, page }) => {
+test('Complete example with network recording', async ({ 
+  api, 
+  cleanup, 
+  diagnostics, 
+  page,
+  networkRecorder 
+}) => {
+  // Start recording network traffic
+  await networkRecorder.startRecording();
+  
   // Generate test data
   const testUser = DataFactory.user();
   
@@ -610,6 +792,10 @@ test('Complete example', async ({ api, cleanup, diagnostics, page }) => {
   // UI interaction
   await page.goto('/users');
   await diagnostics.captureScreenshot('users-page');
+  
+  // Stop recording and save
+  networkRecorder.stopRecording();
+  await networkRecorder.saveRecordings('user-creation-test.json');
   
   // Register cleanup
   cleanup.addTask(async () => {
