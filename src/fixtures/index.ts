@@ -3,3 +3,9 @@ export { authFixture, loadAuthState, saveAuthState, type AuthOptions } from './a
 export { networkFixture, type NetworkOptions } from './network';
 export { cleanupFixture, type CleanupOptions, type CleanupTask } from './cleanup';
 export { diagnosticsFixture, type DiagnosticsOptions } from './diagnostics';
+export { 
+  networkRecorderFixture, 
+  mockServerFixture,
+  type NetworkRecorderFixtureOptions,
+  type MockServerFixtureOptions
+} from './networkRecorder';
