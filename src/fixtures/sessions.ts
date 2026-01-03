@@ -614,6 +614,7 @@ function getSessionsConfig(options?: Partial<SessionsConfig>): SessionsConfig {
  * ```
  */
 export const sessionsFixture = base.extend<
+  // eslint-disable-next-line @typescript-eslint/ban-types
   {},
   { sessionsConfig: SessionsConfig; sessions: SessionsManager }
 >({
