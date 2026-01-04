@@ -1072,7 +1072,6 @@ dataTrackerFixture('Complete example with data tracking', async ({
   await soft.assert(() => expect(userData.email).toBe(testUser.email));
   await soft.assert(() => expect(userData.firstName).toBe(testUser.firstName));
   soft.verify();
-  soft.verify();
   
   // User will be automatically cleaned up in teardown
   await api.dispose();
