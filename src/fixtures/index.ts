@@ -18,3 +18,14 @@ export {
   type RoleSession,
   type SessionsManager
 } from './sessions';
+export {
+  dataTrackerFixture,
+  DataTracker,
+  type DataTrackerOptions,
+  type DataTrackerConfig,
+  type DataTrackerFixtureConfig,
+  type TrackedEntity,
+  type EntityType,
+  type EntityId,
+  type CleanupHandler
+} from './dataTracker';
