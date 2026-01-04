@@ -312,12 +312,19 @@ export const dataTrackerFixture = base.extend<
   
   dataTracker: async ({ playwright, dataTrackerConfig }, use) => {
     // Create API context
-    const api = await playwright.request.newContext({
+    const apiContextOptions: Parameters<typeof playwright.request.newContext>[0] = {
       extraHTTPHeaders: {
         'Accept': 'application/json',
       },
-    });
+    };
 
+    // Optionally allow configuring baseURL (and other request options) via dataTrackerConfig
+    const configBaseURL = (dataTrackerConfig as any)?.baseURL;
+    if (configBaseURL) {
+      (apiContextOptions as any).baseURL = configBaseURL;
+    }
+
+    const api = await playwright.request.newContext(apiContextOptions);
     // Convert config handlers from Record to Map
     const cleanupHandlers = new Map<EntityType, CleanupHandler>();
     if (dataTrackerConfig?.cleanupHandlers) {
