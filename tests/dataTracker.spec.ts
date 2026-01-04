@@ -302,7 +302,7 @@ dataTrackerFixture.describe('Data Tracker - LIFO Cleanup Order', () => {
 });
 
 // Test parallel safety
-test.describe.parallel('Data Tracker - Parallel Safety', () => {
+dataTrackerFixture.describe.parallel('Data Tracker - Parallel Safety', () => {
   
   dataTrackerFixture.use({
     dataTrackerConfig: {

@@ -285,13 +285,19 @@ export interface DataTrackerFixtureConfig {
  *   }
  * });
  * 
- * test('create order', async ({ api, dataTracker }) => {
+ * test('create order', async ({ playwright, dataTracker }) => {
+ *   const api = await playwright.request.newContext({
+ *     baseURL: 'https://api.example.com'
+ *   });
+ *   
  *   const response = await api.post('/api/orders', { data: { item: 'Book' } });
  *   const order = await response.json();
  *   
  *   dataTracker.track('order', order.id);
  *   
  *   expect(order.status).toBe('created');
+ *   
+ *   await api.dispose();
  *   // Order will be automatically cleaned up after test
  * });
  * ```
