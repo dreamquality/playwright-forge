@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { dataTrackerFixture } from '../src/fixtures/dataTracker';
 
 /**
