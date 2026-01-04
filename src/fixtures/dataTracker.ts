@@ -136,6 +136,7 @@ export class DataTracker {
 
   /**
    * Manually cleanup all entities of a specific type
+   * Cleans up in reverse order (LIFO) to match the behavior of cleanup()
    * @param type - Entity type to cleanup
    */
   async cleanupByType(type: EntityType): Promise<void> {
@@ -145,7 +146,8 @@ export class DataTracker {
       console.log(`[DataTracker] Cleaning up ${entitiesOfType.length} entities of type: ${type}`);
     }
 
-    for (const entity of entitiesOfType) {
+    // Clean up in reverse order (LIFO)
+    for (const entity of entitiesOfType.reverse()) {
       await this.cleanupEntity(entity.type, entity.id);
     }
   }
@@ -254,6 +256,17 @@ export interface DataTrackerFixtureConfig {
    * Whether to continue cleanup even if one entity fails
    */
   continueOnError?: boolean;
+  
+  /**
+   * Base URL for the internal API context used by cleanup handlers
+   * Configure this if your cleanup handlers use relative URLs
+   */
+  baseURL?: string;
+  
+  /**
+   * Additional headers for the internal API context
+   */
+  extraHTTPHeaders?: Record<string, string>;
 }
 
 /**
@@ -274,6 +287,7 @@ export interface DataTrackerFixtureConfig {
  * 
  * const test = dataTrackerFixture.use({
  *   dataTrackerConfig: {
+ *     baseURL: 'https://api.example.com', // Configure base URL for cleanup handlers
  *     cleanupHandlers: {
  *       order: async (api, id) => {
  *         await api.delete(`/api/orders/${id}`);
@@ -298,7 +312,7 @@ export interface DataTrackerFixtureConfig {
  *   expect(order.status).toBe('created');
  *   
  *   await api.dispose();
- *   // Order will be automatically cleaned up after test
+ *   // Order will be automatically cleaned up using the configured cleanup handler
  * });
  * ```
  */
@@ -311,17 +325,17 @@ export const dataTrackerFixture = base.extend<
   dataTrackerConfig: [undefined, { option: true }],
   
   dataTracker: async ({ playwright, dataTrackerConfig }, use) => {
-    // Create API context
+    // Create API context with optional configuration from dataTrackerConfig
     const apiContextOptions: Parameters<typeof playwright.request.newContext>[0] = {
       extraHTTPHeaders: {
         'Accept': 'application/json',
+        ...(dataTrackerConfig?.extraHTTPHeaders || {}),
       },
     };
 
-    // Optionally allow configuring baseURL (and other request options) via dataTrackerConfig
-    const configBaseURL = (dataTrackerConfig as any)?.baseURL;
-    if (configBaseURL) {
-      (apiContextOptions as any).baseURL = configBaseURL;
+    // Configure baseURL if provided
+    if (dataTrackerConfig?.baseURL) {
+      apiContextOptions.baseURL = dataTrackerConfig.baseURL;
     }
 
     const api = await playwright.request.newContext(apiContextOptions);

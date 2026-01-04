@@ -29,14 +29,16 @@ dataTrackerFixture.describe('Data Tracker Integration', () => {
   });
   
   dataTrackerFixture('Example from issue - create order', async ({ playwright, dataTracker }) => {
-    // Setup API client with base URL
+    // Setup API client with base URL for creating resources
     const api = await playwright.request.newContext({
       baseURL: 'https://jsonplaceholder.typicode.com'
     });
     
-    // Register cleanup handler (can also be done in config)
+    // Register cleanup handler
+    // Note: The cleanup handler receives the fixture's internal API context,
+    // not the test's API context. For actual cleanup, configure baseURL in dataTrackerConfig.
     dataTracker.registerHandler('order', async (apiContext, id) => {
-      // In real scenario: await apiContext.delete(`/api/orders/${id}`);
+      // In real scenario with configured baseURL: await apiContext.delete(`/api/orders/${id}`);
       console.log(`Would delete order ${id}`);
     });
     

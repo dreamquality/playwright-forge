@@ -113,8 +113,8 @@ dataTrackerFixture.describe('Data Tracker - Core Functionality', () => {
     // Cleanup only orders
     await dataTracker.cleanupByType('order');
     
-    // Verify only orders were cleaned up
-    expect(cleanedUp).toEqual(['order-1', 'order-2']);
+    // Verify orders were cleaned up in LIFO order (reverse of tracking)
+    expect(cleanedUp).toEqual(['order-2', 'order-1']);
     expect(dataTracker.getTrackedEntities()).toHaveLength(1);
     expect(dataTracker.getTrackedEntities()[0].type).toBe('user');
   });
@@ -182,7 +182,8 @@ dataTrackerFixture.describe('Data Tracker - Core Functionality', () => {
     
     await dataTracker.cleanupByType('order');
     
-    expect(cleanedUp).toEqual([123, 456]);
+    // Verify LIFO order (reverse of tracking)
+    expect(cleanedUp).toEqual([456, 123]);
   });
 });
 

@@ -380,6 +380,7 @@ import { dataTrackerFixture } from 'playwright-forge';
 // Configure cleanup handlers for different entity types
 const test = dataTrackerFixture.use({
   dataTrackerConfig: {
+    baseURL: 'https://api.example.com', // Configure base URL for cleanup handlers
     cleanupHandlers: {
       order: async (api, id) => {
         await api.delete(`/api/orders/${id}`);
@@ -412,7 +413,7 @@ test('create order', async ({ dataTracker, playwright }) => {
   expect(order.status).toBe('created');
   
   await api.dispose();
-  // Order will be automatically cleaned up after test, even on failure
+  // Order will be automatically cleaned up using the configured cleanup handler
 });
 ```
 
