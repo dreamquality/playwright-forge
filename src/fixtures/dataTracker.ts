@@ -146,8 +146,8 @@ export class DataTracker {
       console.log(`[DataTracker] Cleaning up ${entitiesOfType.length} entities of type: ${type}`);
     }
 
-    // Clean up in reverse order (LIFO)
-    for (const entity of entitiesOfType.reverse()) {
+    // Clean up in reverse order (LIFO) - use slice to avoid mutating the array
+    for (const entity of entitiesOfType.slice().reverse()) {
       await this.cleanupEntity(entity.type, entity.id);
     }
   }
