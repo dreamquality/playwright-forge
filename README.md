@@ -946,45 +946,68 @@ FileAssertions.isNotEmpty('file.txt');
 
 ## Combining Fixtures
 
-You can combine multiple fixtures in your tests:
+Each fixture in `playwright-forge` is already a complete test object. To use multiple fixtures in your tests, you can either:
 
+**Option 1: Use fixtures independently in separate tests**
 ```typescript
 import { 
   apiFixture, 
   cleanupFixture, 
-  diagnosticsFixture, 
-  networkRecorderFixture,
   dataTrackerFixture 
 } from 'playwright-forge';
 
-const test = apiFixture
-  .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures)
-  .extend(networkRecorderFixture.fixtures)
-  .extend(dataTrackerFixture.fixtures);
-
-test('Combined test', async ({ api, cleanup, diagnostics, networkRecorder, dataTracker }) => {
-  // Start recording network traffic
-  await networkRecorder.startRecording();
-  
+// Each test can use its own fixture
+apiFixture('API test', async ({ api }) => {
   // Use API fixture
-  const response = await api.get('https://api.example.com/data');
+});
+
+dataTrackerFixture('Data tracking test', async ({ dataTracker }) => {
+  // Use data tracker
+});
+```
+
+**Option 2: Combine fixtures using test.extend()**
+```typescript
+import { test as base } from '@playwright/test';
+import { 
+  apiFixture, 
+  cleanupFixture, 
+  diagnosticsFixture,
+  dataTrackerFixture 
+} from 'playwright-forge';
+
+// Note: Fixtures are test objects, not fixture definitions
+// If you need multiple fixtures, use the base test and manually extend
+// or use fixtures separately in different test files
+
+// For simple cases, just use the fixture you need:
+dataTrackerFixture.use({
+  dataTrackerConfig: {
+    cleanupHandlers: {
+      order: async (api, id) => {
+        await api.delete(`/api/orders/${id}`);
+      }
+    }
+  }
+});
+
+dataTrackerFixture('Combined test', async ({ dataTracker, playwright }) => {
+  // The dataTracker fixture includes its own API context
+  const api = await playwright.request.newContext({
+    baseURL: 'https://api.example.com'
+  });
+  
+  const response = await api.get('/data');
   
   // Track entities for automatic cleanup
   dataTracker.track('data', 'resource-123');
   
-  // Register cleanup
-  cleanup.addTask(async () => {
-    await api.delete('/cleanup');
-  });
-  
-  // Capture diagnostics
-  await diagnostics.captureScreenshot('test-state');
-  
-  // Save recordings
-  await networkRecorder.saveRecordings();
+  await api.dispose();
+  // Cleanup happens automatically
 });
 ```
+
+**Note:** Each fixture is designed to be self-contained and parallel-safe. The `dataTrackerFixture` includes its own API request context that is automatically managed.
 
 ## Configuration
 
@@ -996,38 +1019,31 @@ All fixtures and utilities are designed to be configuration-free with sensible d
 ## Example: Complete Test Suite
 
 ```typescript
-import { test as base } from '@playwright/test';
 import {
-  apiFixture,
-  cleanupFixture,
-  diagnosticsFixture,
-  networkRecorderFixture,
   dataTrackerFixture,
   DataFactory,
   validateJsonSchema,
   softAssertions
 } from 'playwright-forge';
 
-const test = apiFixture
-  .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures)
-  .extend(networkRecorderFixture.fixtures)
-  .extend(dataTrackerFixture.fixtures);
+// Configure the data tracker with cleanup handlers
+dataTrackerFixture.use({
+  dataTrackerConfig: {
+    cleanupHandlers: {
+      user: async (api, id) => {
+        await api.delete(`/api/users/${id}`);
+      }
+    }
+  }
+});
 
-test('Complete example with network recording and data tracking', async ({ 
-  api, 
-  cleanup, 
-  diagnostics, 
-  page,
-  networkRecorder,
-  dataTracker 
+dataTrackerFixture('Complete example with data tracking', async ({ 
+  dataTracker,
+  playwright
 }) => {
-  // Start recording network traffic
-  await networkRecorder.startRecording();
-  
-  // Register cleanup handler for users
-  dataTracker.registerHandler('user', async (apiContext, id) => {
-    await apiContext.delete(`/api/users/${id}`);
+  // Create API context
+  const api = await playwright.request.newContext({
+    baseURL: 'https://api.example.com'
   });
   
   // Generate test data
@@ -1056,21 +1072,10 @@ test('Complete example with network recording and data tracking', async ({
   await soft.assert(() => expect(userData.email).toBe(testUser.email));
   await soft.assert(() => expect(userData.firstName).toBe(testUser.firstName));
   soft.verify();
+  soft.verify();
   
-  // UI interaction
-  await page.goto('/users');
-  await diagnostics.captureScreenshot('users-page');
-  
-  // Stop recording and save
-  networkRecorder.stopRecording();
-  await networkRecorder.saveRecordings('user-creation-test.json');
-  
-  // Additional cleanup tasks
-  cleanup.addTask(async () => {
-    // Custom cleanup that runs after data tracker cleanup
-    console.log('Final cleanup step');
-  });
-  });
+  // User will be automatically cleaned up in teardown
+  await api.dispose();
 });
 ```
 
