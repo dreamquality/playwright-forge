@@ -53,6 +53,149 @@ authFixture('Auth test', async ({ context, auth }) => {
 });
 ```
 
+### Sessions Fixture
+Manages authenticated sessions for multiple user roles with automatic caching and TTL handling.
+
+```typescript
+import { sessionsFixture } from 'playwright-forge';
+
+const test = sessionsFixture.use({
+  sessionsConfig: {
+    roles: {
+      admin: {
+        apiLoginEndpoint: 'https://api.example.com/login',
+        credentials: { username: 'admin', password: 'admin123' },
+        ttl: 3600000, // 1 hour
+      },
+      user: {
+        loginUrl: 'https://example.com/login',
+        credentials: { username: 'user', password: 'user123' },
+      },
+    },
+  },
+});
+
+test('admin vs user access', async ({ sessions }) => {
+  const admin = await sessions.get('admin');
+  const user = await sessions.get('user');
+
+  await admin.page.goto('/admin');
+  await user.page.goto('/profile');
+});
+```
+
+**Features:**
+- API-based login with UI fallback
+- Session caching per role (cookies + localStorage + headers)
+- Automatic session reuse between tests and workers
+- Token refresh and expiration (TTL)
+- Role switching within tests
+- Parallel-safe and CI-friendly
+- Typed access via `sessions.get('role')`
+- Fully configurable via options and environment variables
+
+**Configuration:**
+```typescript
+import { sessionsFixture, type SessionsConfig } from 'playwright-forge';
+
+const config: SessionsConfig = {
+  roles: {
+    admin: {
+      // API-based login
+      apiLoginEndpoint: 'https://api.example.com/auth/login',
+      apiLoginMethod: 'POST',
+      credentials: { username: 'admin', password: 'pass' },
+      tokenPath: 'data.token', // JSON path to extract token
+      ttl: 3600000, // 1 hour
+    },
+    user: {
+      // UI-based login
+      loginUrl: 'https://example.com/login',
+      credentials: { username: 'user', password: 'pass' },
+      ttl: 1800000, // 30 minutes
+    },
+    custom: {
+      // Custom login function
+      customLogin: async (page, api) => {
+        await page.goto('https://example.com/oauth');
+        await page.click('#google-login');
+        // Handle OAuth flow
+      },
+      ttl: 7200000, // 2 hours
+    },
+  },
+  storageDir: '.sessions', // Directory for session storage
+  defaultTTL: 3600000, // Default TTL for all roles (1 hour)
+  refreshThreshold: 0.1, // Refresh when 10% of TTL remains
+  preferApiLogin: true, // Prefer API login when both API and UI configured
+};
+
+const test = sessionsFixture.use({ sessionsConfig: config });
+```
+
+**Environment Variables:**
+```bash
+# Configure via environment variables
+SESSIONS_STORAGE_DIR=.sessions
+SESSIONS_DEFAULT_TTL=3600000
+SESSIONS_PREFER_API_LOGIN=true
+SESSIONS_ROLES='{"admin":{"apiLoginEndpoint":"https://api.example.com/login","credentials":{"username":"admin","password":"pass"}}}'
+```
+
+**Advanced Usage:**
+```typescript
+// Refresh a session manually
+const refreshedSession = await sessions.refresh('admin');
+
+// Clear a specific role session
+await sessions.clearRole('admin');
+
+// Clear all sessions
+await sessions.clearAll();
+
+// Access session data
+const adminSession = await sessions.get('admin');
+console.log(adminSession.data.token); // Bearer token
+console.log(adminSession.data.headers); // Headers with Authorization
+console.log(adminSession.data.localStorage); // localStorage data
+console.log(adminSession.data.cookies); // Cookies
+
+// Use custom headers with API requests
+const adminApi = await sessions.get('admin');
+const response = await adminApi.page.request.get('https://api.example.com/data', {
+  headers: adminApi.data.headers,
+});
+```
+
+**MFA/OTP Support:**
+```typescript
+const config: SessionsConfig = {
+  roles: {
+    adminWithMFA: {
+      customLogin: async (page, api) => {
+        // Login with username/password
+        await page.goto('https://example.com/login');
+        await page.fill('#username', 'admin');
+        await page.fill('#password', 'pass');
+        await page.click('#submit');
+        
+        // Wait for MFA prompt
+        await page.waitForSelector('#otp-input');
+        
+        // Get OTP from external service or env variable
+        const otp = process.env.ADMIN_OTP || '123456';
+        await page.fill('#otp-input', otp);
+        await page.click('#verify-otp');
+        
+        // Wait for successful login
+        await page.waitForURL('**/dashboard');
+      },
+      ttl: 3600000,
+    },
+  },
+};
+```
+
 ### Network Fixture
 Utilities for waiting and intercepting network requests.
 

@@ -9,3 +9,12 @@ export {
   type NetworkRecorderFixtureOptions,
   type MockServerFixtureOptions
 } from './networkRecorder';
+export { 
+  sessionsFixture,
+  type SessionsConfig,
+  type SessionsOptions,
+  type RoleConfig,
+  type SessionData,
+  type RoleSession,
+  type SessionsManager
+} from './sessions';
