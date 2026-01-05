@@ -492,6 +492,35 @@ cleanupFixture('Cleanup test', async ({ cleanup }) => {
 });
 ```
 
+### Soft Expect Fixture
+Collect multiple assertion failures during test execution and report them all at once with automatic verification in test teardown.
+
+```typescript
+import { softExpectFixture } from 'playwright-forge';
+
+softExpectFixture('profile validation', async ({ page, softExpect }) => {
+  await page.goto('/profile');
+  
+  // All assertions collected - test auto-fails in teardown if any fail
+  await softExpect.expect(page.locator('#name')).toHaveText('John');
+  await softExpect.expect(page.locator('#email')).toContainText('@');
+  
+  // Group by context (UI, API, Validation)
+  await softExpect.ui(page.locator('#header')).toBeVisible();
+  await softExpect.api(response.status()).toBe(200);
+  await softExpect.validation('test@test.com').toContain('@');
+});
+```
+
+**Features:**
+- Playwright expect API compatibility with full matcher support
+- Context grouping (UI, API, Validation, custom)
+- Automatic verification in test teardown
+- JSON export and CI annotations
+- Parallel-safe with per-test isolation
+
+See the [Soft Assertions](#soft-assertions) section in Utilities for detailed usage and examples.
+
 ### Diagnostics Fixture
 Automatically captures screenshots on test failure.
 
@@ -702,8 +731,131 @@ const customEmail = faker.internet.email();
 ```
 
 ### Soft Assertions
-Collect multiple assertion failures and report them together.
+Collect multiple assertion failures and report them together at the end of a test, allowing you to see all failures at once instead of stopping at the first one.
 
+**Features:**
+- 🎯 **Playwright expect API** - Drop-in replacement for `expect()` with full matcher support
+- 📊 **Context grouping** - Organize assertions by UI, API, Validation, or custom contexts
+- 🔄 **Automatic verification** - Auto-fail in test teardown with aggregated error report
+- 📝 **CI-friendly exports** - JSON reports and CI annotations for debugging
+- 🧪 **Parallel-safe** - Per-test isolation with Playwright fixtures
+- ⚡ **Async support** - Works with Playwright's async assertions and page interactions
+
+**Basic Usage (Utility):**
+```typescript
+import { softExpect } from 'playwright-forge';
+
+test('multiple validations', async () => {
+  const soft = softExpect();
+  
+  await soft.expect(value1).toBe(expected1);
+  await soft.expect(value2).toBe(expected2);
+  await soft.expect(value3).toBe(expected3);
+  
+  // Throws error with all failures grouped
+  soft.assertAll();
+});
+```
+
+**Fixture Usage (Recommended):**
+```typescript
+import { softExpectFixture } from 'playwright-forge';
+
+// Automatically verifies and fails test in afterEach
+softExpectFixture('profile page validation', async ({ page, softExpect }) => {
+  await page.goto('/profile');
+  
+  // All assertions collected automatically
+  await softExpect.expect(page.locator('#name')).toHaveText('John');
+  await softExpect.expect(page.locator('#email')).toContainText('@');
+  await softExpect.expect(page.locator('#age')).toBeVisible();
+  
+  // Auto-fails with aggregated report if any assertions failed
+});
+```
+
+**Context Grouping:**
+```typescript
+softExpectFixture('multi-context validation', async ({ page, softExpect }) => {
+  // UI assertions
+  await softExpect.ui(page.locator('#header')).toBeVisible();
+  await softExpect.ui(page.locator('#title')).toHaveText('Dashboard');
+  
+  // API assertions (e.g., after API call)
+  const response = await fetch('/api/status');
+  await softExpect.api(response.status).toBe(200);
+  await softExpect.api(response.headers.get('content-type')).toContain('json');
+  
+  // Validation assertions
+  await softExpect.validation('user@example.com').toContain('@');
+  await softExpect.validation('password123').toHaveLength(11);
+  
+  // Custom context
+  await softExpect.withContext('Database')('id-123').toBeDefined();
+  
+  // Errors are grouped by context in the final report:
+  // [UI] 1 error:
+  //   1. Expected "Dashboard" but got "Home"
+  // [API] 1 error:
+  //   1. Expected 200 but got 500
+});
+```
+
+**Configuration Options:**
+```typescript
+// Disable auto-verify for manual control
+softExpectFixture.use({
+  softExpectOptions: { autoVerify: false }
+});
+
+softExpectFixture('manual verification', async ({ softExpect }) => {
+  await softExpect.expect(value).toBe(expected);
+  
+  // Manually verify when ready
+  softExpect.assertAll();
+});
+
+// Enable JSON export for CI/CD
+softExpectFixture.use({
+  softExpectOptions: { 
+    autoVerify: true,
+    exportJSON: true,
+    exportPath: 'soft-assertions.json'
+  }
+});
+
+softExpectFixture('with JSON export', async ({ softExpect }) => {
+  // Failures are automatically exported to JSON
+  await softExpect.expect(value).toBe(expected);
+});
+```
+
+**CI Annotations Export:**
+```typescript
+import { softExpect } from 'playwright-forge';
+
+const soft = softExpect();
+
+await soft.ui(page.locator('#name')).toHaveText('Expected');
+await soft.api(200).toBe(500);
+
+// Export for CI annotations
+const report = soft.exportCIAnnotations();
+console.log(report);
+// {
+//   totalErrors: 2,
+//   contexts: { UI: 1, API: 1 },
+//   errors: [
+//     { message: "...", context: "UI", timestamp: 1234567890 },
+//     { message: "...", context: "API", timestamp: 1234567891 }
+//   ]
+// }
+
+// Or export as JSON string
+const jsonReport = soft.exportJSON();
+```
+
+**Legacy API (Still Supported):**
 ```typescript
 import { softAssertions } from 'playwright-forge';
 
@@ -711,10 +863,44 @@ const soft = softAssertions();
 
 await soft.assert(() => expect(value1).toBe(expected1));
 await soft.assert(() => expect(value2).toBe(expected2));
-await soft.assert(() => expect(value3).toBe(expected3));
 
-// Throws error with all failures
-soft.verify();
+soft.verify(); // Throws with all failures
+```
+
+**Real-World Example:**
+```typescript
+import { softExpectFixture } from 'playwright-forge';
+
+softExpectFixture('checkout flow validation', async ({ page, softExpect }) => {
+  await page.goto('/checkout');
+  
+  // Validate page loaded correctly
+  await softExpect.ui(page.locator('#checkout-form')).toBeVisible();
+  await softExpect.ui(page.locator('#payment-section')).toBeVisible();
+  
+  // Fill form
+  await page.fill('#email', 'user@example.com');
+  await page.fill('#card', '4242424242424242');
+  
+  // Validate form state
+  await softExpect.validation(page.locator('#email')).toHaveValue('user@example.com');
+  await softExpect.validation(page.locator('#card')).toHaveValue('4242424242424242');
+  
+  // Submit and validate response
+  const [response] = await Promise.all([
+    page.waitForResponse('/api/checkout'),
+    page.click('#submit-button')
+  ]);
+  
+  await softExpect.api(response.status()).toBe(200);
+  await softExpect.api(response.headers()['content-type']).toContain('json');
+  
+  // Validate success state
+  await softExpect.ui(page.locator('#success-message')).toBeVisible();
+  await softExpect.ui(page.locator('#order-id')).toHaveText(/ORD-\d+/);
+  
+  // All failures reported together with context grouping
+});
 ```
 
 ### Page Guard

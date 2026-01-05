@@ -136,17 +136,15 @@ export class SoftExpect {
    * Create an expect proxy with optional context
    */
   private createExpectProxy<T>(actual: T, context?: AssertionContext): any {
-    const self = this;
-    
     return new Proxy({} as any, {
       get: (target, prop) => {
-        return function (...args: any[]) {
+        return (...args: any[]) => {
           // If no args are provided and prop is 'resolves' or 'rejects', return a proxy
           if (args.length === 0 && (prop === 'resolves' || prop === 'rejects')) {
-            return self.createExpectProxy(actual, context)[prop];
+            return this.createExpectProxy(actual, context)[prop];
           }
           
-          return self.captureAssertion(async () => {
+          return this.captureAssertion(async () => {
             // Import expect dynamically to avoid circular dependencies
             const { expect } = await import('@playwright/test');
             const expectChain = (expect as any)(actual);
@@ -162,7 +160,7 @@ export class SoftExpect {
               return new Proxy({}, {
                 get: (_, nestedProp) => {
                   return (...nestedArgs: any[]) => {
-                    return self.captureAssertion(async () => {
+                    return this.captureAssertion(async () => {
                       const nestedAssertion = assertion[nestedProp];
                       if (typeof nestedAssertion === 'function') {
                         return await nestedAssertion.apply(assertion, nestedArgs);
