@@ -55,7 +55,7 @@ export const softExpectFixture = base.extend<{
         const path = await import('path');
         
         const outputDir = testInfo.outputDir;
-        const outputPath = path.join(outputDir, softExpectOptions.exportPath!);
+        const outputPath = path.join(outputDir, softExpectOptions.exportPath ?? 'soft-assertions.json');
         
         // Ensure output directory exists
         fs.mkdirSync(path.dirname(outputPath), { recursive: true });

@@ -139,11 +139,6 @@ export class SoftExpect {
     return new Proxy({} as any, {
       get: (target, prop) => {
         return (...args: any[]) => {
-          // If no args are provided and prop is 'resolves' or 'rejects', return a proxy
-          if (args.length === 0 && (prop === 'resolves' || prop === 'rejects')) {
-            return this.createExpectProxy(actual, context)[prop];
-          }
-          
           return this.captureAssertion(async () => {
             // Import expect dynamically to avoid circular dependencies
             const { expect } = await import('@playwright/test');
@@ -154,24 +149,8 @@ export class SoftExpect {
               return await assertion.apply(expectChain, args);
             }
             
-            // Handle property access (like .resolves or .rejects)
-            if (assertion && typeof assertion === 'object') {
-              // Return a new proxy for chained properties
-              return new Proxy({}, {
-                get: (_, nestedProp) => {
-                  return (...nestedArgs: any[]) => {
-                    return this.captureAssertion(async () => {
-                      const nestedAssertion = assertion[nestedProp];
-                      if (typeof nestedAssertion === 'function') {
-                        return await nestedAssertion.apply(assertion, nestedArgs);
-                      }
-                      return nestedAssertion;
-                    }, context);
-                  };
-                },
-              });
-            }
-            
+            // Handle property access (like .not)
+            // Return the property value which might be another object with matchers
             return assertion;
           }, context);
         };
@@ -189,7 +168,7 @@ export class SoftExpect {
       const assertionError = error instanceof Error ? error : new Error(String(error));
       this.errors.push({
         error: assertionError,
-        context: context,
+        context,
         timestamp: Date.now(),
       });
     }
