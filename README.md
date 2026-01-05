@@ -371,6 +371,111 @@ test('Replay session', async ({ page }) => {
 });
 ```
 
+### Data Tracker Fixture
+Manages test-created resources (users, orders, files, entities) and automatically cleans them up after test execution.
+
+```typescript
+import { dataTrackerFixture } from 'playwright-forge';
+
+// Configure cleanup handlers for different entity types
+const test = dataTrackerFixture.use({
+  dataTrackerConfig: {
+    baseURL: 'https://api.example.com', // Configure base URL for cleanup handlers
+    cleanupHandlers: {
+      order: async (api, id) => {
+        await api.delete(`/api/orders/${id}`);
+      },
+      user: async (api, id) => {
+        await api.delete(`/api/users/${id}`);
+      },
+      file: async (api, id, metadata) => {
+        await api.delete(`/api/files/${id}`);
+      }
+    },
+    debug: false,
+    continueOnError: true
+  }
+});
+
+test('create order', async ({ dataTracker, playwright }) => {
+  const api = await playwright.request.newContext({
+    baseURL: 'https://api.example.com'
+  });
+  
+  const response = await api.post('/api/orders', {
+    data: { item: 'Book', quantity: 1 }
+  });
+  const order = await response.json();
+  
+  // Track the order for automatic cleanup
+  dataTracker.track('order', order.id);
+
+  expect(order.status).toBe('created');
+  
+  await api.dispose();
+  // Order will be automatically cleaned up using the configured cleanup handler
+});
+```
+
+**Features:**
+- Track created entities with type and identifier
+- Support API-based cleanup per entity type
+- Auto-run cleanup in test teardown (even on failure)
+- Allow manual cleanup override
+- Parallel-safe and CI-friendly
+- Integrates with existing API client
+
+**Configuration:**
+```typescript
+import { dataTrackerFixture, type CleanupHandler } from 'playwright-forge';
+
+const cleanupHandlers: Record<string, CleanupHandler> = {
+  order: async (api, id, metadata) => {
+    await api.delete(`/api/orders/${id}`);
+  },
+  user: async (api, id) => {
+    await api.delete(`/api/users/${id}`);
+  }
+};
+
+const test = dataTrackerFixture.use({
+  dataTrackerConfig: {
+    cleanupHandlers,
+    debug: true, // Enable debug logging
+    continueOnError: true // Continue cleanup even if one entity fails
+  }
+});
+```
+
+**Advanced Usage:**
+```typescript
+test('advanced data tracking', async ({ dataTracker }) => {
+  // Track with metadata
+  dataTracker.track('order', '123', { name: 'Test Order', amount: 100 });
+  
+  // Register handler at runtime
+  dataTracker.registerHandler('file', async (api, id) => {
+    await api.delete(`/api/files/${id}`);
+  });
+  
+  // Manual cleanup
+  await dataTracker.cleanupEntity('order', '123');
+  
+  // Cleanup by type
+  await dataTracker.cleanupByType('order');
+  
+  // Get tracked entities
+  const allEntities = dataTracker.getTrackedEntities();
+  const orders = dataTracker.getTrackedEntitiesByType('order');
+  
+  // Clear without cleanup (manual override)
+  dataTracker.clear();
+});
+```
+
+**LIFO Cleanup Order:**
+Entities are cleaned up in reverse order (Last In, First Out), ensuring dependent resources are cleaned up in the correct sequence.
+
 ### Cleanup Fixture
 Manages teardown tasks ensuring proper cleanup even if tests fail.
 
@@ -842,35 +947,68 @@ FileAssertions.isNotEmpty('file.txt');
 
 ## Combining Fixtures
 
-You can combine multiple fixtures in your tests:
+Each fixture in `playwright-forge` is already a complete test object. To use multiple fixtures in your tests, you can either:
 
+**Option 1: Use fixtures independently in separate tests**
 ```typescript
-import { apiFixture, cleanupFixture, diagnosticsFixture, networkRecorderFixture } from 'playwright-forge';
+import { 
+  apiFixture, 
+  cleanupFixture, 
+  dataTrackerFixture 
+} from 'playwright-forge';
 
-const test = apiFixture
-  .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures)
-  .extend(networkRecorderFixture.fixtures);
-
-test('Combined test', async ({ api, cleanup, diagnostics, networkRecorder }) => {
-  // Start recording network traffic
-  await networkRecorder.startRecording();
-  
+// Each test can use its own fixture
+apiFixture('API test', async ({ api }) => {
   // Use API fixture
-  const response = await api.get('https://api.example.com/data');
-  
-  // Register cleanup
-  cleanup.addTask(async () => {
-    await api.delete('/cleanup');
-  });
-  
-  // Capture diagnostics
-  await diagnostics.captureScreenshot('test-state');
-  
-  // Save recordings
-  await networkRecorder.saveRecordings();
+});
+
+dataTrackerFixture('Data tracking test', async ({ dataTracker }) => {
+  // Use data tracker
 });
 ```
+
+**Option 2: Combine fixtures using test.extend()**
+```typescript
+import { test as base } from '@playwright/test';
+import { 
+  apiFixture, 
+  cleanupFixture, 
+  diagnosticsFixture,
+  dataTrackerFixture 
+} from 'playwright-forge';
+
+// Note: Fixtures are test objects, not fixture definitions
+// If you need multiple fixtures, use the base test and manually extend
+// or use fixtures separately in different test files
+
+// For simple cases, just use the fixture you need:
+dataTrackerFixture.use({
+  dataTrackerConfig: {
+    cleanupHandlers: {
+      order: async (api, id) => {
+        await api.delete(`/api/orders/${id}`);
+      }
+    }
+  }
+});
+
+dataTrackerFixture('Combined test', async ({ dataTracker, playwright }) => {
+  // The dataTracker fixture includes its own API context
+  const api = await playwright.request.newContext({
+    baseURL: 'https://api.example.com'
+  });
+  
+  const response = await api.get('/data');
+  
+  // Track entities for automatic cleanup
+  dataTracker.track('data', 'resource-123');
+  
+  await api.dispose();
+  // Cleanup happens automatically
+});
+```
+
+**Note:** Each fixture is designed to be self-contained and parallel-safe. The `dataTrackerFixture` includes its own API request context that is automatically managed.
 
 ## Configuration
 
@@ -882,31 +1020,32 @@ All fixtures and utilities are designed to be configuration-free with sensible d
 ## Example: Complete Test Suite
 
 ```typescript
-import { test as base } from '@playwright/test';
 import {
-  apiFixture,
-  cleanupFixture,
-  diagnosticsFixture,
-  networkRecorderFixture,
+  dataTrackerFixture,
   DataFactory,
   validateJsonSchema,
   softAssertions
 } from 'playwright-forge';
 
-const test = apiFixture
-  .extend(cleanupFixture.fixtures)
-  .extend(diagnosticsFixture.fixtures)
-  .extend(networkRecorderFixture.fixtures);
+// Configure the data tracker with cleanup handlers
+dataTrackerFixture.use({
+  dataTrackerConfig: {
+    cleanupHandlers: {
+      user: async (api, id) => {
+        await api.delete(`/api/users/${id}`);
+      }
+    }
+  }
+});
 
-test('Complete example with network recording', async ({ 
-  api, 
-  cleanup, 
-  diagnostics, 
-  page,
-  networkRecorder 
+dataTrackerFixture('Complete example with data tracking', async ({ 
+  dataTracker,
+  playwright
 }) => {
-  // Start recording network traffic
-  await networkRecorder.startRecording();
+  // Create API context
+  const api = await playwright.request.newContext({
+    baseURL: 'https://api.example.com'
+  });
   
   // Generate test data
   const testUser = DataFactory.user();
@@ -914,6 +1053,9 @@ test('Complete example with network recording', async ({
   // Make API call
   const response = await api.post('/api/users', { data: testUser });
   const userData = await response.json();
+  
+  // Track the user for automatic cleanup
+  dataTracker.track('user', userData.id);
   
   // Validate response
   const userSchema = {
@@ -932,18 +1074,8 @@ test('Complete example with network recording', async ({
   await soft.assert(() => expect(userData.firstName).toBe(testUser.firstName));
   soft.verify();
   
-  // UI interaction
-  await page.goto('/users');
-  await diagnostics.captureScreenshot('users-page');
-  
-  // Stop recording and save
-  networkRecorder.stopRecording();
-  await networkRecorder.saveRecordings('user-creation-test.json');
-  
-  // Register cleanup
-  cleanup.addTask(async () => {
-    await api.delete(`/api/users/${userData.id}`);
-  });
+  // User will be automatically cleaned up in teardown
+  await api.dispose();
 });
 ```
 
