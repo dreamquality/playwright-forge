@@ -29,3 +29,7 @@ export {
   type EntityId,
   type CleanupHandler
 } from './dataTracker';
+export {
+  softExpectFixture,
+  type SoftExpectOptions
+} from './softExpect';
