@@ -173,7 +173,9 @@ export class SoftExpect {
             // Otherwise, continue traversing the chain
             expectChain = value;
 
-            // If the chain cannot be followed further, stop to avoid runtime errors
+            // If the chain cannot be followed further (e.g., invalid property access),
+            // return gracefully to avoid runtime errors. This can happen if someone tries
+            // to access a non-existent property in the expect chain.
             if (expectChain == null) {
               return;
             }
@@ -182,7 +184,9 @@ export class SoftExpect {
       },
     };
 
-    // Use a callable target so that the proxy can be invoked as a function
+    // Use a callable target so that the proxy can be invoked as a function.
+    // The noop function serves as the target for the Proxy, allowing the 'apply' handler
+    // to intercept function calls on the proxy (e.g., when calling toBe(1) after .not).
     const target = function () { /* noop */ };
     return new Proxy(target as any, handler);
   }
