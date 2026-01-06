@@ -3,7 +3,15 @@ export { loadYaml, loadYamlAsync, saveYaml, saveYamlAsync } from './yamlLoader';
 export { waitForDownload, getDownload, type DownloadOptions } from './downloadHelper';
 export { poll, pollUntilValue, type PollOptions } from './polling';
 export { DataFactory, faker } from './dataFactory';
-export { SoftAssertions, softAssertions } from './softAssertions';
+export { 
+  SoftAssertions, 
+  softAssertions, 
+  SoftExpect, 
+  softExpect,
+  type AssertionContext,
+  type ContextualError,
+  type CIAnnotationReport
+} from './softAssertions';
 export { 
   PageGuard, 
   createPageGuard, 
