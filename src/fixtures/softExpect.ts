@@ -47,30 +47,30 @@ export const softExpectFixture = base.extend<{
     // Provide soft expect to the test
     await use(softExpect);
 
+    // Export to JSON if enabled and there are errors
+    if (softExpectOptions.exportJSON && softExpect.hasErrors()) {
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      const outputDir = testInfo.outputDir;
+      const outputPath = path.join(outputDir, softExpectOptions.exportPath ?? 'soft-assertions.json');
+      
+      // Ensure output directory exists
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      
+      // Write JSON report
+      fs.writeFileSync(outputPath, softExpect.exportJSON(), 'utf-8');
+      
+      // Attach to test results
+      testInfo.attachments.push({
+        name: 'soft-assertions-report',
+        path: outputPath,
+        contentType: 'application/json',
+      });
+    }
+
     // Auto-verify in teardown if enabled
     if (softExpectOptions.autoVerify && softExpect.hasErrors()) {
-      // Export to JSON if enabled
-      if (softExpectOptions.exportJSON) {
-        const fs = await import('fs');
-        const path = await import('path');
-        
-        const outputDir = testInfo.outputDir;
-        const outputPath = path.join(outputDir, softExpectOptions.exportPath ?? 'soft-assertions.json');
-        
-        // Ensure output directory exists
-        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-        
-        // Write JSON report
-        fs.writeFileSync(outputPath, softExpect.exportJSON(), 'utf-8');
-        
-        // Attach to test results
-        testInfo.attachments.push({
-          name: 'soft-assertions-report',
-          path: outputPath,
-          contentType: 'application/json',
-        });
-      }
-
       // Verify and fail the test
       softExpect.assertAll();
     }

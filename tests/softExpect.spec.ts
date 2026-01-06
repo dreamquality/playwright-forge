@@ -209,6 +209,24 @@ test.describe('SoftExpect Utility Tests', () => {
     expect(grouped.has('uncategorized')).toBe(true);
     expect(grouped.has('UI')).toBe(true);
   });
+
+  test('should support negated matchers with .not', async () => {
+    const soft = softExpect();
+    
+    // These should pass
+    await soft.expect(1).not.toBe(2);
+    await soft.expect('hello').not.toContain('xyz');
+    await soft.expect([1, 2, 3]).not.toHaveLength(5);
+    
+    expect(soft.hasErrors()).toBe(false);
+    
+    // These should fail
+    await soft.expect(1).not.toBe(1);
+    await soft.expect('hello').not.toContain('ell');
+    
+    expect(soft.hasErrors()).toBe(true);
+    expect(soft.getErrors()).toHaveLength(2);
+  });
 });
 
 test.describe('SoftExpect Fixture Tests', () => {

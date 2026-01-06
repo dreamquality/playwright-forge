@@ -135,27 +135,56 @@ export class SoftExpect {
   /**
    * Create an expect proxy with optional context
    */
-  private createExpectProxy<T>(actual: T, context?: AssertionContext): any {
-    return new Proxy({} as any, {
-      get: (target, prop) => {
-        return (...args: any[]) => {
-          return this.captureAssertion(async () => {
-            // Import expect dynamically to avoid circular dependencies
-            const { expect } = await import('@playwright/test');
-            const expectChain = (expect as any)(actual);
-            const assertion = expectChain[prop];
-            
-            if (typeof assertion === 'function') {
-              return await assertion.apply(expectChain, args);
-            }
-            
-            // Handle property access (like .not)
-            // Return the property value which might be another object with matchers
-            return assertion;
-          }, context);
-        };
+  private createExpectProxy<T>(actual: T, context?: AssertionContext, propertyChain: PropertyKey[] = []): any {
+    const handler: ProxyHandler<any> = {
+      get: (_target, prop: PropertyKey) => {
+        // Avoid being treated as a Promise by frameworks that probe for `then`
+        if (prop === 'then') {
+          return undefined;
+        }
+
+        const newChain = [...propertyChain, prop];
+        return this.createExpectProxy(actual, context, newChain);
       },
-    });
+      apply: (_target, _thisArg, args: any[]) => {
+        return this.captureAssertion(async () => {
+          // Import expect dynamically to avoid circular dependencies
+          const { expect } = await import('@playwright/test');
+          let expectChain: any = (expect as any)(actual);
+
+          if (propertyChain.length === 0) {
+            // Called directly: softExpect.expect(value)(...)
+            if (typeof expectChain === 'function') {
+              return await expectChain.apply(expectChain, args);
+            }
+            return;
+          }
+
+          // Walk through the property chain (e.g. ['not', 'toBe'])
+          for (let i = 0; i < propertyChain.length; i++) {
+            const prop = propertyChain[i];
+            const value = expectChain[prop];
+
+            // If this is the last property in the chain and it's a function, invoke it
+            if (i === propertyChain.length - 1 && typeof value === 'function') {
+              return await value.apply(expectChain, args);
+            }
+
+            // Otherwise, continue traversing the chain
+            expectChain = value;
+
+            // If the chain cannot be followed further, stop to avoid runtime errors
+            if (expectChain == null) {
+              return;
+            }
+          }
+        }, context);
+      },
+    };
+
+    // Use a callable target so that the proxy can be invoked as a function
+    const target = function () { /* noop */ };
+    return new Proxy(target as any, handler);
   }
 
   /**

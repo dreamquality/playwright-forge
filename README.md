@@ -507,6 +507,8 @@ softExpectFixture('profile validation', async ({ page, softExpect }) => {
   
   // Group by context (UI, API, Validation)
   await softExpect.ui(page.locator('#header')).toBeVisible();
+  
+  const response = await page.request.get('/api/profile');
   await softExpect.api(response.status()).toBe(200);
   await softExpect.validation('test@test.com').toContain('@');
 });
@@ -748,9 +750,9 @@ import { softExpect } from 'playwright-forge';
 test('multiple validations', async () => {
   const soft = softExpect();
   
-  await soft.expect(value1).toBe(expected1);
-  await soft.expect(value2).toBe(expected2);
-  await soft.expect(value3).toBe(expected3);
+  await soft.expect(1).toBe(1);
+  await soft.expect(2).toBe(2);
+  await soft.expect('hello').toContain('hello');
   
   // Throws error with all failures grouped
   soft.assertAll();
@@ -809,7 +811,7 @@ softExpectFixture.use({
 });
 
 softExpectFixture('manual verification', async ({ softExpect }) => {
-  await softExpect.expect(value).toBe(expected);
+  await softExpect.expect(1).toBe(1);
   
   // Manually verify when ready
   softExpect.assertAll();
@@ -826,7 +828,7 @@ softExpectFixture.use({
 
 softExpectFixture('with JSON export', async ({ softExpect }) => {
   // Failures are automatically exported to JSON
-  await softExpect.expect(value).toBe(expected);
+  await softExpect.expect(1).toBe(2); // This will fail
 });
 ```
 
@@ -857,14 +859,17 @@ const jsonReport = soft.exportJSON();
 
 **Legacy API (Still Supported):**
 ```typescript
+import { test, expect } from '@playwright/test';
 import { softAssertions } from 'playwright-forge';
 
-const soft = softAssertions();
+test('legacy soft assertions', async () => {
+  const soft = softAssertions();
 
-await soft.assert(() => expect(value1).toBe(expected1));
-await soft.assert(() => expect(value2).toBe(expected2));
+  await soft.assert(() => expect(1).toBe(1));
+  await soft.assert(() => expect(2).toBe(2));
 
-soft.verify(); // Throws with all failures
+  soft.verify(); // Throws with all failures
+});
 ```
 
 **Real-World Example:**
